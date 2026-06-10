@@ -33,7 +33,8 @@ PROVIDERS = {
         "default_model": "gemini-2.0-flash",
         "needs_base_url": False,
         "key_hint": "API key từ Google AI Studio",
-        "models_note": "VD: gemini-2.0-flash, gemini-1.5-pro, gemini-2.5-pro",
+        "models_note": "Free tier hay bị 429 với gemini-2.0-flash → thử gemini-2.0-flash-lite "
+                       "hoặc gemini-1.5-flash. Bản trả phí: gemini-2.5-pro.",
     },
     "openai": {
         "label": "OpenAI (ChatGPT)",
@@ -195,13 +196,17 @@ def _call_gemini(model, key, system, user, base_url=None):
 def _call_openai(model, key, system, user, base_url=None):
     base = (base_url or "https://api.openai.com/v1").rstrip("/")
     url = base + "/chat/completions"
-    r = requests.post(url, timeout=DEFAULT_TIMEOUT,
-        headers={"Authorization": f"Bearer {key}", "content-type": "application/json"},
+    headers = {"Authorization": f"Bearer {key}", "content-type": "application/json",
+               # Header thân thiện với OpenRouter (OpenAI bỏ qua nếu không cần):
+               "HTTP-Referer": "https://texo.local", "X-Title": "TEXO Contract Checker"}
+    r = requests.post(url, timeout=DEFAULT_TIMEOUT, headers=headers,
         json={"model": model, "temperature": 0.2,
               "messages": [{"role": "system", "content": system},
                            {"role": "user", "content": user}]})
     r.raise_for_status()
     data = r.json()
+    if "choices" not in data:
+        raise RuntimeError(f"Phản hồi không hợp lệ từ endpoint: {str(data)[:200]}")
     return data["choices"][0]["message"]["content"]
 
 
@@ -210,7 +215,14 @@ def call_llm(provider, model, key, system, user, base_url=None):
         return _call_anthropic(model, key, system, user, base_url)
     if provider == "gemini":
         return _call_gemini(model, key, system, user, base_url)
-    if provider in ("openai", "openai_compat"):
+    if provider == "openai":
+        return _call_openai(model, key, system, user, base_url)
+    if provider == "openai_compat":
+        if not base_url or not base_url.strip():
+            raise ValueError(
+                "Loại 'API tương thích OpenAI' BẮT BUỘC điền Base URL "
+                "(vd OpenRouter: https://openrouter.ai/api/v1). "
+                "Để trống sẽ bị gọi nhầm sang OpenAI và báo lỗi key.")
         return _call_openai(model, key, system, user, base_url)
     raise ValueError(f"Nhà cung cấp không hỗ trợ: {provider}")
 
@@ -237,6 +249,56 @@ def _extract_json(text):
     return None
 
 
+def _http_hint(code, provider):
+    """Gợi ý khắc phục theo mã lỗi HTTP."""
+    c = str(code)
+    if c == "401" or c == "403":
+        return ("Key sai hoặc không có quyền. Với 'API tương thích OpenAI' (OpenRouter…) "
+                "nhớ điền đúng Base URL — nếu để trống sẽ gọi nhầm OpenAI và báo key sai.")
+    if c == "429":
+        if provider == "gemini":
+            return ("Hết hạn mức (quota) phía Google. Thử model 'gemini-2.0-flash-lite' hoặc "
+                    "'gemini-1.5-flash', chờ quota reset, hoặc bật billing.")
+        return "Hết hạn mức / quá nhiều request. Chờ một lúc, đổi model rẻ hơn, hoặc kiểm tra billing."
+    if c == "404":
+        return "Sai tên model hoặc sai Base URL. Kiểm tra lại tên model endpoint của bạn hỗ trợ."
+    return ""
+
+
+def list_models(provider, key, base_url=None):
+    """Hỏi nhà cung cấp danh sách model mà key này dùng được.
+    Trả về (ok, [model...] | thông_báo_lỗi)."""
+    try:
+        if provider == "gemini":
+            base = (base_url or "https://generativelanguage.googleapis.com").rstrip("/")
+            r = requests.get(f"{base}/v1beta/models?key={key}&pageSize=200", timeout=30)
+            r.raise_for_status()
+            out = []
+            for m in r.json().get("models", []):
+                if "generateContent" in (m.get("supportedGenerationMethods") or []):
+                    out.append(m.get("name", "").split("/", 1)[-1])
+            return True, sorted(set(x for x in out if x))
+        if provider == "anthropic":
+            base = (base_url or "https://api.anthropic.com").rstrip("/")
+            r = requests.get(f"{base}/v1/models?limit=100", timeout=30,
+                             headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
+            r.raise_for_status()
+            return True, [m.get("id") for m in r.json().get("data", []) if m.get("id")]
+        # openai / openai_compat
+        if provider == "openai_compat" and (not base_url or not base_url.strip()):
+            return False, "Cần điền Base URL trước khi lấy danh sách model."
+        base = (base_url or "https://api.openai.com/v1").rstrip("/")
+        r = requests.get(f"{base}/models", timeout=30,
+                         headers={"Authorization": f"Bearer {key}"})
+        r.raise_for_status()
+        return True, sorted(m.get("id") for m in r.json().get("data", []) if m.get("id"))
+    except requests.HTTPError as e:
+        code = e.response.status_code if e.response is not None else "?"
+        return False, f"HTTP {code}: {_http_hint(code, provider)}".strip()
+    except Exception as e:
+        return False, str(e)[:200]
+
+
 def test_connection(provider, model, key, base_url=None):
     """Gọi thử ngắn để kiểm tra key/model. Trả về (ok, message)."""
     try:
@@ -248,12 +310,13 @@ def test_connection(provider, model, key, base_url=None):
         code = e.response.status_code if e.response is not None else "?"
         detail = ""
         try:
-            detail = e.response.text[:200]
+            detail = e.response.text[:160]
         except Exception:
             pass
-        return False, f"HTTP {code}: {detail}"
+        hint = _http_hint(code, provider)
+        return False, f"HTTP {code}: {detail}" + (f"\n👉 {hint}" if hint else "")
     except Exception as e:
-        return False, str(e)[:200]
+        return False, str(e)[:240]
 
 
 def analyze_with_ai(result, contract_text, provider, model, key, base_url=None):
@@ -268,7 +331,9 @@ def analyze_with_ai(result, contract_text, provider, model, key, base_url=None):
             detail = e.response.text[:300]
         except Exception:
             detail = ""
-        return {"ok": False, "error": f"Lỗi API (HTTP {code}): {detail}"}
+        hint = _http_hint(code, provider)
+        return {"ok": False, "error": f"Lỗi API (HTTP {code}): {detail}"
+                + (f"\n👉 {hint}" if hint else "")}
     except Exception as e:
         return {"ok": False, "error": f"Lỗi gọi AI: {e}"}
 

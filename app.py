@@ -112,11 +112,42 @@ def sidebar_ai_config():
     base_url = ""
     if prov["needs_base_url"]:
         base_url = st.sidebar.text_input(
-            "Base URL", value=saved.get("base_urls", {}).get(pid, ""),
-            placeholder="https://… (vd https://openrouter.ai/api/v1)")
+            "Base URL (BẮT BUỘC)", value=saved.get("base_urls", {}).get(pid, ""),
+            placeholder="https://openrouter.ai/api/v1",
+            help="Bắt buộc cho loại tương thích OpenAI. OpenRouter: https://openrouter.ai/api/v1 "
+                 "— và đặt tên model dạng 'nhà_cung_cấp/model', vd 'openai/gpt-4o' hoặc "
+                 "'anthropic/claude-3.5-sonnet'.")
+        if not base_url.strip():
+            st.sidebar.error("⚠️ Chưa điền Base URL → sẽ bị gọi nhầm sang OpenAI và báo lỗi key. "
+                             "OpenRouter dùng: https://openrouter.ai/api/v1")
     api_key = st.sidebar.text_input(
         "API key", value=saved.get("keys", {}).get(pid, ""), type="password",
         help=prov["key_hint"])
+
+    # Lấy danh sách model thực tế mà key này dùng được (tránh đoán sai tên model)
+    if st.sidebar.button("🔄 Lấy danh sách model", use_container_width=True):
+        if not api_key:
+            st.sidebar.warning("Nhập API key trước đã.")
+        elif prov["needs_base_url"] and not (base_url or "").strip():
+            st.sidebar.warning("Điền Base URL trước đã.")
+        else:
+            with st.sidebar:
+                with st.spinner("Đang hỏi danh sách model…"):
+                    ok, res = llm.list_models(pid, api_key, base_url or None)
+            if ok and res:
+                st.session_state[f"models_{pid}"] = res
+                st.sidebar.success(f"Tìm thấy {len(res)} model.")
+            elif ok:
+                st.sidebar.info("Key hợp lệ nhưng không có model nào dùng được.")
+            else:
+                st.sidebar.error(f"Lỗi lấy model: {res}")
+    fetched = st.session_state.get(f"models_{pid}")
+    if fetched:
+        pick = st.sidebar.selectbox(
+            "Model có sẵn (chọn để dùng)", ["(giữ ô Model ở trên)"] + fetched, index=0)
+        if pick != "(giữ ô Model ở trên)":
+            model = pick
+            st.sidebar.caption(f"Đang dùng model: **{model}**")
 
     remember = st.sidebar.checkbox("Ghi nhớ key tại máy này", value=bool(saved.get("keys", {}).get(pid)))
 
