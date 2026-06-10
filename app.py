@@ -12,7 +12,8 @@ from engine import analyze
 from report import build_report
 from knowledge import DO, CAM, XANH, LEVEL_LABEL, LEVEL_COLOR
 
-st.set_page_config(page_title="TEXO – Rà soát Hợp đồng TVGS", page_icon="📑", layout="wide")
+st.set_page_config(page_title="TEXO – Rà soát Hợp đồng tư vấn xây dựng",
+                   page_icon="📑", layout="wide")
 
 
 # --------------------------------------------------------------------------- #
@@ -59,6 +60,27 @@ def render_result(res):
     c2.metric("Rủi ro TRUNG BÌNH", s[CAM])
     c3.metric("Chủ đề THIẾU", s["missing"])
     c4.metric("Đề mục/Điều", res["meta"]["n_headings"])
+
+    # Vai trò tư vấn
+    roles = res.get("roles") or {}
+    if roles.get("primary_meta"):
+        pm = roles["primary_meta"]
+        with st.expander(f"🧩 Vai trò tư vấn: **{pm['name']}**", expanded=True):
+            if roles["multi_role"]:
+                others = ", ".join(m["name"] for m in roles["present_meta"]
+                                   if m["id"] != pm["id"])
+                st.warning(f"Hợp đồng có thể GỘP NHIỀU vai trò (cũng thấy: {others}). "
+                           f"→ Tách phạm vi & căn cứ pháp lý từng phần.")
+            st.markdown(f"**Phạm vi chuẩn:** {pm['scope']}")
+            st.markdown(f"**Căn cứ pháp lý:** {pm['basis']}")
+            if pm.get("independence"):
+                st.info(f"**Yêu cầu độc lập:** {pm['independence']}")
+            st.markdown(f"**Lưu ý rà soát:** {pm['review']}")
+            for note in roles.get("cross_role_flags", []):
+                st.error(f"⚠️ Vượt vai trò: {note}")
+    else:
+        st.info("Chưa nhận diện rõ vai trò tư vấn — nên xác định thủ công (TVGS / QLDA / "
+                "thẩm tra / kiểm định / khảo sát / thiết kế).")
 
     with st.expander("ℹ️ Bối cảnh hợp đồng", expanded=True):
         st.write(f"**Kiểu kết cấu:** {ctx['kieu_ket_cau']}")
@@ -121,8 +143,9 @@ def render_result(res):
 # MAIN
 # --------------------------------------------------------------------------- #
 def main():
-    st.title("📑 Rà soát pháp lý Hợp đồng TVGS — TEXO")
-    st.caption("Công cụ sàng lọc rủi ro hợp đồng theo góc nhìn Bên B (Nhà tư vấn giám sát). "
+    st.title("📑 Rà soát pháp lý Hợp đồng tư vấn xây dựng — TEXO")
+    st.caption("Công cụ sàng lọc rủi ro hợp đồng theo góc nhìn ĐƠN VỊ TƯ VẤN (Bên B) — "
+               "TVGS, QLDA, thẩm tra, kiểm định, khảo sát, thiết kế. "
                "Hoạt động bằng quy tắc (rule-based), **không dùng AI**.")
 
     if not check_password():

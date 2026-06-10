@@ -19,6 +19,7 @@ import xml.etree.ElementTree as ET
 from knowledge import (
     RISK_RULES, TOPICS, EN_WARN_TERMS, DO, CAM, XANH, LEVEL_ORDER,
 )
+from roles import detect_roles
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -274,6 +275,7 @@ def analyze(data: bytes, filename: str):
 
     headings = detect_structure(paras)
     context = detect_context(paras, headings, full_text)
+    roles = detect_roles(full_text)
     findings = scan_findings(paras)
     coverage = scan_coverage(full_lower)
     en_warnings = scan_en_warnings(full_lower)
@@ -294,6 +296,7 @@ def analyze(data: bytes, filename: str):
             "n_headings": len(headings),
         },
         "context": context,
+        "roles": roles,
         "structure": headings,
         "findings": findings,
         "coverage": coverage,

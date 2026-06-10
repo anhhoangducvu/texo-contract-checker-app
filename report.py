@@ -119,7 +119,7 @@ def build_report(result: dict) -> bytes:
           size=12, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
     _para(doc, "BÁO CÁO RÀ SOÁT PHÁP LÝ HỢP ĐỒNG",
           size=16, bold=True, color=C_HEAD, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
-    _para(doc, "(Góc nhìn Nhà tư vấn giám sát — Bên B)",
+    _para(doc, "(Góc nhìn Đơn vị tư vấn — Bên B)",
           size=12, italic=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
     _para(doc, f"Ngày lập: {datetime.now().strftime('%d/%m/%Y')}",
           size=11, italic=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=10)
@@ -136,6 +136,26 @@ def build_report(result: dict) -> bytes:
     _para(doc, f"• Nguồn vốn: {ctx['nguon_von']}.", space_after=2)
     _para(doc, f"• Trần phạt áp dụng: {ctx['tran_phat']}.", space_after=2)
     _para(doc, f"• Đối chiếu mẫu TT 02/2023/TT-BXD: {ctx['ghi_chu_tt02']}", space_after=8)
+
+    # ---- Vai trò tư vấn ----
+    roles = result.get("roles") or {}
+    pm = roles.get("primary_meta")
+    if pm:
+        _heading(doc, "1b. VAI TRÒ TƯ VẤN & PHẠM VI CHUẨN")
+        _para(doc, f"• Vai trò chính (đoán): {pm['name']}.", space_after=2)
+        if roles.get("multi_role"):
+            others = ", ".join(m["name"] for m in roles["present_meta"] if m["id"] != pm["id"])
+            _para(doc, f"• Hợp đồng có thể GỘP NHIỀU vai trò (cũng thấy: {others}) → tách "
+                       f"phạm vi & căn cứ pháp lý từng phần.", color=C_CAM, space_after=2)
+        _para(doc, f"• Phạm vi chuẩn: {pm['scope']}", size=11, space_after=2)
+        _para(doc, f"• Căn cứ pháp lý: {pm['basis']}", size=11, space_after=2)
+        if pm.get("independence"):
+            _para(doc, f"• Yêu cầu độc lập: {pm['independence']}", size=11, space_after=2)
+        _para(doc, f"• Lưu ý rà soát: {pm['review']}", size=11, space_after=2)
+        for note in roles.get("cross_role_flags", []):
+            _para(doc, f"• [Cờ đỏ – vượt vai trò] {note}", size=11, bold=True,
+                  color=C_DO, space_after=2)
+        _para(doc, "", space_after=6)
 
     # ---- 2. Tóm tắt điều hành ----
     _heading(doc, "2. TÓM TẮT ĐIỀU HÀNH")

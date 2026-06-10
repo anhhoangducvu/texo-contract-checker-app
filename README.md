@@ -1,8 +1,9 @@
 # TEXO — Rà soát pháp lý Hợp đồng TVGS (Web app, rule-based)
 
-Công cụ web sàng lọc rủi ro hợp đồng tư vấn giám sát (TVGS) theo góc nhìn **Bên B**.
-Chuyển từ skill `texo-hopdong-checker` sang dạng **Streamlit** để phổ cập cho nhiều người,
-có **một lớp bảo mật bằng mật khẩu**, và **không cần đấu nối API AI**.
+Công cụ web sàng lọc rủi ro hợp đồng **tư vấn xây dựng** theo góc nhìn **Đơn vị tư vấn
+(Bên B)** — áp dụng cho mọi vai trò: **TVGS, QLDA, thẩm tra thiết kế/dự toán, kiểm định,
+khảo sát, thiết kế**. Chuyển từ skill `texo-hopdong-checker` sang dạng **Streamlit** để phổ
+cập cho nhiều người, có **một lớp bảo mật bằng mật khẩu**, và **không cần đấu nối API AI**.
 
 > ⚠️ **Khác biệt so với bản dùng AI:** bản này chạy bằng **quy tắc (rule-based)** — dò
 > mẫu câu/từ khóa bất lợi và kiểm tra độ phủ 21 chủ đề chuẩn. Nó nhanh, miễn phí, riêng tư,
@@ -14,6 +15,9 @@ có **một lớp bảo mật bằng mật khẩu**, và **không cần đấu n
 ## 1. Công cụ làm được gì (không cần AI)
 
 - Đọc hợp đồng **.docx** và **.pdf** (PDF phải có chữ — không phải ảnh scan).
+- **Nhận diện VAI TRÒ tư vấn** (TVGS / QLDA / thẩm tra / kiểm định / khảo sát / thiết kế) kèm
+  phạm vi chuẩn, căn cứ pháp lý, yêu cầu độc lập; **cảnh báo scope creep chéo vai trò** (vd
+  hợp đồng TVGS lại gán "thẩm tra thiết kế" hay "kiểm định" — sai năng lực/xung đột lợi ích).
 - **Đoán bối cảnh:** nguồn vốn (công/PPP vs tư nhân/FDI → trần phạt 12% hay 8%), ngôn ngữ,
   song ngữ, kiểu kết cấu (dân luật VN / common-law), có điều kiện chung-riêng / thứ tự ưu tiên.
 - **Phát hiện ~30 loại điều khoản bất lợi** (cờ đỏ/cam): phạt trên tổng giá trị HĐ, bồi thường
@@ -37,6 +41,7 @@ texo-contract-checker-app/
 ├── app.py              # Giao diện Streamlit + cổng mật khẩu
 ├── engine.py           # Trích xuất + nhận diện kết cấu + quét rủi ro + độ phủ
 ├── knowledge.py        # Bộ quy tắc rủi ro & 21 chủ đề (CHỈNH Ở ĐÂY để nâng chất lượng)
+├── roles.py            # Nhận diện vai trò tư vấn + phạm vi/căn cứ + cờ scope creep
 ├── report.py           # Sinh báo cáo Word A4
 ├── requirements.txt
 ├── .gitignore
