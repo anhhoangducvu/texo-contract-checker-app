@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-TEXO — Rà soát pháp lý Hợp đồng TVGS (phiên bản web, rule-based, KHÔNG dùng AI).
+TEXO — Rà soát pháp lý Hợp đồng tư vấn xây dựng (phiên bản web, rule-based, KHÔNG dùng AI).
 
 Chạy:  streamlit run app.py
 Bảo mật: nhập mật khẩu (mặc định 'texo2026', có thể đổi qua st.secrets hoặc biến môi trường).

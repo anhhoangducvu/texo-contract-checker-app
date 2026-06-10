@@ -6,6 +6,7 @@ Engine phân tích hợp đồng RULE-BASED (không dùng AI).
 Đầu ra: dict kết quả gồm
   - meta        : tên file, số đoạn, số comment
   - context     : ngôn ngữ, song ngữ, kiểu kết cấu, nguồn vốn (đoán), trần phạt áp dụng
+  - roles       : vai trò tư vấn (TVGS/QLDA/thẩm tra/kiểm định...) + nhãn Bên B
   - structure   : danh sách heading (điều/mục/phụ lục)
   - findings    : danh sách rủi ro phát hiện (theo RISK_RULES) — kèm trích dẫn câu
   - coverage    : 21 chủ đề — có/không, mức rủi ro khi thiếu
@@ -19,7 +20,7 @@ import xml.etree.ElementTree as ET
 from knowledge import (
     RISK_RULES, TOPICS, EN_WARN_TERMS, DO, CAM, XANH, LEVEL_ORDER,
 )
-from roles import detect_roles
+from roles import detect_roles, party_label
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -219,44 +220,53 @@ def _find_sentence(paras, pattern):
     return None
 
 
-def scan_findings(paras):
+def _fill(text, label):
+    """Điền nhãn Bên B theo vai trò vào chỗ giữ {TV}."""
+    return text.replace("{TV}", label) if isinstance(text, str) else text
+
+
+def scan_findings(paras, label, primary_role=None):
     findings = []
     for rule in RISK_RULES:
+        # Bỏ qua rule không áp dụng cho vai trò hiện tại (vd 'thẩm tra thiết kế' là việc
+        # đúng vai trò của đơn vị thẩm tra/thiết kế, không phải cờ đỏ).
+        if primary_role and primary_role in rule.get("skip_roles", []):
+            continue
         sentence = _find_sentence(paras, rule["pattern"])
         if sentence:
             findings.append({
                 "id": rule["id"],
                 "topic": rule["topic"],
                 "level": rule["level"],
-                "label": rule["label"],
+                "label": _fill(rule["label"], label),
                 "quote": sentence[:300],
-                "problem": rule["problem"],
-                "basis": rule["basis"],
-                "suggest": rule["suggest"],
+                "problem": _fill(rule["problem"], label),
+                "basis": _fill(rule["basis"], label),
+                "suggest": _fill(rule["suggest"], label),
             })
     findings.sort(key=lambda f: (LEVEL_ORDER[f["level"]], f["topic"]))
     return findings
 
 
-def scan_coverage(full_text_lower):
+def scan_coverage(full_text_lower, label):
     coverage = []
     for topic in TOPICS:
         present = any(k.lower() in full_text_lower for k in topic["keywords"])
         coverage.append({
             "id": topic["id"],
-            "name": topic["name"],
+            "name": _fill(topic["name"], label),
             "present": present,
             "missing_risk": topic["missing_risk"],
-            "missing_note": topic["missing_note"],
+            "missing_note": _fill(topic["missing_note"], label),
         })
     return coverage
 
 
-def scan_en_warnings(full_text_lower):
+def scan_en_warnings(full_text_lower, label=""):
     out = []
     for term, note in EN_WARN_TERMS.items():
         if term in full_text_lower:
-            out.append({"term": term, "note": note})
+            out.append({"term": term, "note": _fill(note, label)})
     return out
 
 
@@ -276,9 +286,11 @@ def analyze(data: bytes, filename: str):
     headings = detect_structure(paras)
     context = detect_context(paras, headings, full_text)
     roles = detect_roles(full_text)
-    findings = scan_findings(paras)
-    coverage = scan_coverage(full_lower)
-    en_warnings = scan_en_warnings(full_lower)
+    label = party_label(roles.get("primary"))
+    roles["party_label"] = label
+    findings = scan_findings(paras, label, roles.get("primary"))
+    coverage = scan_coverage(full_lower, label)
+    en_warnings = scan_en_warnings(full_lower, label)
 
     missing_topics = [c for c in coverage if not c["present"]]
     summary = {

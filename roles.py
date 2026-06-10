@@ -10,6 +10,26 @@ Mỗi vai trò tư vấn có PHẠM VI CHUẨN và CĂN CỨ PHÁP LÝ riêng. K
 """
 import re
 
+# Nhãn ngắn của ĐƠN VỊ TƯ VẤN (Bên B) theo vai trò — dùng để điền vào báo cáo thay cho
+# chữ "TVGS" gán cứng. Nhờ vậy báo cáo linh hoạt theo loại hợp đồng.
+PARTY_LABEL = {
+    "TVGS": "TVGS",
+    "QLDA": "đơn vị QLDA",
+    "THAM_TRA_TK": "đơn vị thẩm tra",
+    "THAM_TRA_DT": "đơn vị thẩm tra dự toán",
+    "KIEM_DINH": "đơn vị kiểm định",
+    "KHAO_SAT": "đơn vị khảo sát",
+    "THIET_KE": "đơn vị thiết kế",
+    "LAP_DA": "đơn vị tư vấn lập dự án",
+}
+PARTY_LABEL_DEFAULT = "đơn vị tư vấn (Bên B)"
+
+
+def party_label(role_id):
+    """Nhãn ngắn của Bên B theo vai trò; mặc định 'đơn vị tư vấn (Bên B)'."""
+    return PARTY_LABEL.get(role_id, PARTY_LABEL_DEFAULT)
+
+
 # id, name, keywords(regex), scope, basis, independence(optional), review
 ROLES = [
     {

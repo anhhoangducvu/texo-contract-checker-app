@@ -424,7 +424,4 @@ EN_WARN_TERMS = {
     "set-off": "Khấu trừ — kiểm tra CĐT có được đơn phương khấu trừ khi đang tranh chấp không.",
     "entire agreement": "Thỏa thuận trọn vẹn — mọi cam kết miệng ngoài văn bản sẽ vô hiệu; đưa cam kết quan trọng vào HĐ.",
     "no oral variation": "Chỉ sửa bằng văn bản — bảo đảm các thống nhất sau này được lập thành văn bản.",
-    "defects notification period": "Thời gian thông báo khiếm khuyết (bảo hành) — {TV} có thể bị ràng buộc kéo dài đến hết giai đoạn này.",
-    "final certificate": "Chứng chỉ cuối cùng — kiểm tra {TV} bị ràng buộc trách nhiệm đến thời điểm nào.",
-    "reimbursable": "Chi phí hoàn lại theo thực chi — làm rõ danh mục được hoàn và chứng từ.",
-}
+    "defects notification period": "Thời gian thông báo khiếm khuyết (bảo hành) — {TV} có

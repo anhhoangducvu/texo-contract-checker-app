@@ -113,13 +113,15 @@ def build_report(result: dict) -> bytes:
     ctx = result["context"]
     meta = result["meta"]
     summary = result["summary"]
+    roles = result.get("roles") or {}
+    party = roles.get("party_label") or "Đơn vị tư vấn (Bên B)"
 
     # ---- Tiêu đề ----
     _para(doc, "CÔNG TY CỔ PHẦN TEXO TƯ VẤN VÀ ĐẦU TƯ",
           size=12, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
     _para(doc, "BÁO CÁO RÀ SOÁT PHÁP LÝ HỢP ĐỒNG",
           size=16, bold=True, color=C_HEAD, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
-    _para(doc, "(Góc nhìn Đơn vị tư vấn — Bên B)",
+    _para(doc, f"(Góc nhìn {party[0].upper() + party[1:]} — Bên B)",
           size=12, italic=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
     _para(doc, f"Ngày lập: {datetime.now().strftime('%d/%m/%Y')}",
           size=11, italic=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=10)
@@ -243,7 +245,7 @@ def build_report(result: dict) -> bytes:
     # ---- 6. Lưu ý ----
     _heading(doc, "6. LƯU Ý SỬ DỤNG")
     _para(doc,
-          "Báo cáo do công cụ tự động lập theo bộ tiêu chí rà soát hợp đồng TVGS của "
+          "Báo cáo do công cụ tự động lập theo bộ tiêu chí rà soát hợp đồng tư vấn xây dựng của "
           "TEXO, không sử dụng AI. Công cụ phát hiện theo MẪU CÂU và TỪ KHÓA nên có thể "
           "bỏ sót cách diễn đạt lạ hoặc báo nhầm khi câu chữ trùng từ khóa. Hãy coi đây "
           "là bước sàng lọc đầu tiên; quyết định đàm phán/ký kết phải dựa trên rà soát "
