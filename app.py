@@ -1,23 +1,34 @@
 # -*- coding: utf-8 -*-
 """
-TEXO — Rà soát pháp lý Hợp đồng tư vấn xây dựng (phiên bản web, rule-based, KHÔNG dùng AI).
+TEXO — Rà soát pháp lý Hợp đồng tư vấn xây dựng (phiên bản web).
 
-Chạy:  streamlit run app.py
-Bảo mật: nhập mật khẩu (mặc định 'texo2026', có thể đổi qua st.secrets hoặc biến môi trường).
+Hai chế độ:
+  • KHÔNG AI (mặc định): quét rule-based — miễn phí, riêng tư, chạy cục bộ.
+  • CÓ AI ("bộ não"): người dùng tự dán API key (Claude/Gemini/OpenAI/tương thích OpenAI)
+    để có báo cáo ĐẦY ĐỦ đúng tinh thần skill. AI bổ sung trên nền rule-based.
+
+Bảo mật: cổng mật khẩu (mặc định 'texo2026'). Khi bật AI, toàn văn hợp đồng được gửi tới
+nhà cung cấp đã chọn — người dùng tự chịu trách nhiệm về key & dữ liệu.
 """
 import os
+import json
+from pathlib import Path
+
 import streamlit as st
 
-from engine import analyze
-from report import build_report
+from engine import analyze, extract
+from report import build_report, build_ai_report
 from knowledge import DO, CAM, XANH, LEVEL_LABEL, LEVEL_COLOR
+import llm
 
 st.set_page_config(page_title="TEXO – Rà soát Hợp đồng tư vấn xây dựng",
                    page_icon="📑", layout="wide")
 
+SECRETS_PATH = Path(__file__).with_name(".texo_secrets.json")
+
 
 # --------------------------------------------------------------------------- #
-# CỔNG MẬT KHẨU (lớp bảo mật cơ bản)
+# CỔNG MẬT KHẨU
 # --------------------------------------------------------------------------- #
 def get_password():
     try:
@@ -44,33 +55,133 @@ def check_password():
 
 
 # --------------------------------------------------------------------------- #
-# HIỂN THỊ KẾT QUẢ
+# LƯU / NẠP API KEY TẠI MÁY (tùy chọn)
+# --------------------------------------------------------------------------- #
+def load_secrets():
+    try:
+        if SECRETS_PATH.exists():
+            return json.loads(SECRETS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {"keys": {}, "models": {}, "base_urls": {}, "last_provider": "anthropic"}
+
+
+def save_secrets(d):
+    try:
+        SECRETS_PATH.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+        return True
+    except Exception as e:
+        st.sidebar.error(f"Không lưu được key: {e}")
+        return False
+
+
+def forget_secrets():
+    try:
+        if SECRETS_PATH.exists():
+            SECRETS_PATH.unlink()
+    except Exception:
+        pass
+
+
+# --------------------------------------------------------------------------- #
+# SIDEBAR — CẤU HÌNH AI
+# --------------------------------------------------------------------------- #
+def sidebar_ai_config():
+    saved = load_secrets()
+    st.sidebar.header("🧠 Bộ não AI (tùy chọn)")
+    enable = st.sidebar.checkbox(
+        "Bật phân tích bằng AI", value=False,
+        help="Tắt = chỉ dùng rule-based (miễn phí, cục bộ). Bật = cần API key của bạn.")
+
+    cfg = {"enabled": enable}
+    if not enable:
+        st.sidebar.caption("Đang ở chế độ **KHÔNG AI** — báo cáo rút gọn, chạy hoàn toàn cục bộ.")
+        return cfg
+
+    ids = list(llm.PROVIDERS.keys())
+    labels = [llm.PROVIDERS[i]["label"] for i in ids]
+    last = saved.get("last_provider", "anthropic")
+    idx = ids.index(last) if last in ids else 0
+    pid = ids[st.sidebar.selectbox("Nhà cung cấp", range(len(ids)),
+                                   format_func=lambda i: labels[i], index=idx)]
+    prov = llm.PROVIDERS[pid]
+
+    model = st.sidebar.text_input(
+        "Model", value=saved.get("models", {}).get(pid, prov["default_model"]),
+        help=prov["models_note"])
+    base_url = ""
+    if prov["needs_base_url"]:
+        base_url = st.sidebar.text_input(
+            "Base URL", value=saved.get("base_urls", {}).get(pid, ""),
+            placeholder="https://… (vd https://openrouter.ai/api/v1)")
+    api_key = st.sidebar.text_input(
+        "API key", value=saved.get("keys", {}).get(pid, ""), type="password",
+        help=prov["key_hint"])
+
+    remember = st.sidebar.checkbox("Ghi nhớ key tại máy này", value=bool(saved.get("keys", {}).get(pid)))
+
+    col1, col2 = st.sidebar.columns(2)
+    if col1.button("💾 Lưu", use_container_width=True):
+        if remember:
+            saved.setdefault("keys", {})[pid] = api_key
+            saved.setdefault("models", {})[pid] = model
+            saved.setdefault("base_urls", {})[pid] = base_url
+            saved["last_provider"] = pid
+            if save_secrets(saved):
+                st.sidebar.success("Đã lưu key tại máy.")
+        else:
+            # bỏ ghi nhớ provider này
+            saved.get("keys", {}).pop(pid, None)
+            save_secrets(saved)
+            st.sidebar.info("Đã bỏ ghi nhớ key của nhà cung cấp này.")
+    if col2.button("🧪 Kiểm tra", use_container_width=True):
+        if not api_key:
+            st.sidebar.warning("Chưa nhập key.")
+        else:
+            with st.sidebar:
+                with st.spinner("Đang kiểm tra kết nối…"):
+                    ok, msg = llm.test_connection(pid, model, api_key, base_url or None)
+            (st.sidebar.success if ok else st.sidebar.error)(
+                f"{'OK' if ok else 'Lỗi'}: {msg}")
+    if st.sidebar.button("🗑️ Xoá key đã lưu tại máy", use_container_width=True):
+        forget_secrets()
+        st.sidebar.info("Đã xoá file key tại máy.")
+
+    # CẢNH BÁO BẢO MẬT (theo yêu cầu)
+    st.sidebar.warning(
+        "⚠️ **Lưu ý về API key & bảo mật**\n\n"
+        "- Khi bật AI, **toàn văn hợp đồng** sẽ được gửi tới nhà cung cấp bạn chọn để xử lý.\n"
+        "- Tùy chọn *ghi nhớ key tại máy* lưu key vào tệp `.texo_secrets.json` ngay trên máy "
+        "chạy app (tiện nhưng kém an toàn hơn). Chúng tôi đã cân nhắc kỹ và để **bạn tự chọn**.\n"
+        "- **Khuyến nghị:** chỉ ghi nhớ key trên **máy cá nhân của bạn**; KHÔNG để người khác "
+        "dùng chung tài khoản/máy đã lưu key; không deploy công khai kèm key.\n"
+        "- Việc lộ key (nếu có) là do cách sử dụng của người dùng, **không phải lỗi phần mềm "
+        "hay người phát triển**. Hãy bảo quản key như mật khẩu.")
+
+    cfg.update({"provider": pid, "model": model, "base_url": base_url or None, "api_key": api_key})
+    return cfg
+
+
+# --------------------------------------------------------------------------- #
+# HIỂN THỊ KẾT QUẢ RULE-BASED
 # --------------------------------------------------------------------------- #
 def flag(level):
-    return f":red[●] " if level == DO else (":orange[●] " if level == CAM else ":green[●] ")
+    return ":red[●] " if level == DO else (":orange[●] " if level == CAM else ":green[●] ")
 
 
-def render_result(res):
-    ctx = res["context"]
-    s = res["summary"]
-
-    # Thẻ tổng quan
+def render_rule_based(res):
+    ctx = res["context"]; s = res["summary"]
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Rủi ro CAO", s[DO])
-    c2.metric("Rủi ro TRUNG BÌNH", s[CAM])
-    c3.metric("Chủ đề THIẾU", s["missing"])
-    c4.metric("Đề mục/Điều", res["meta"]["n_headings"])
+    c1.metric("Rủi ro CAO", s[DO]); c2.metric("Rủi ro TRUNG BÌNH", s[CAM])
+    c3.metric("Chủ đề THIẾU", s["missing"]); c4.metric("Đề mục/Điều", res["meta"]["n_headings"])
 
-    # Vai trò tư vấn
     roles = res.get("roles") or {}
     if roles.get("primary_meta"):
         pm = roles["primary_meta"]
         with st.expander(f"🧩 Vai trò tư vấn: **{pm['name']}**", expanded=True):
             if roles["multi_role"]:
-                others = ", ".join(m["name"] for m in roles["present_meta"]
-                                   if m["id"] != pm["id"])
-                st.warning(f"Hợp đồng có thể GỘP NHIỀU vai trò (cũng thấy: {others}). "
-                           f"→ Tách phạm vi & căn cứ pháp lý từng phần.")
+                others = ", ".join(m["name"] for m in roles["present_meta"] if m["id"] != pm["id"])
+                st.warning(f"Có thể GỘP NHIỀU vai trò (cũng thấy: {others}) → tách phạm vi & căn cứ.")
             st.markdown(f"**Phạm vi chuẩn:** {pm['scope']}")
             st.markdown(f"**Căn cứ pháp lý:** {pm['basis']}")
             if pm.get("independence"):
@@ -78,65 +189,72 @@ def render_result(res):
             st.markdown(f"**Lưu ý rà soát:** {pm['review']}")
             for note in roles.get("cross_role_flags", []):
                 st.error(f"⚠️ Vượt vai trò: {note}")
-    else:
-        st.info("Chưa nhận diện rõ vai trò tư vấn — nên xác định thủ công (TVGS / QLDA / "
-                "thẩm tra / kiểm định / khảo sát / thiết kế).")
 
-    with st.expander("ℹ️ Bối cảnh hợp đồng", expanded=True):
+    with st.expander("ℹ️ Bối cảnh hợp đồng", expanded=False):
         st.write(f"**Kiểu kết cấu:** {ctx['kieu_ket_cau']}")
         langs = ", ".join(ctx["content_languages"]) or "vi"
         st.write(f"**Ngôn ngữ:** {langs}" + (" (song ngữ)" if ctx["song_ngu"] else ""))
         st.write(f"**Nguồn vốn (đoán):** {ctx['nguon_von']}")
-        st.write(f"**Trần phạt áp dụng:** {ctx['tran_phat']}")
+        st.write(f"**Trần phạt:** {ctx['tran_phat']}")
         st.write(f"**Mẫu TT 02/2023:** {ctx['ghi_chu_tt02']}")
-        if ctx["co_dieu_kien_chung_rieng"]:
-            st.warning("Có Điều kiện chung + riêng → phải đọc CẢ hai; phần riêng đè phần chung.")
-        if ctx["co_thu_tu_uu_tien"]:
-            st.info("Có điều khoản thứ tự ưu tiên hồ sơ → kiểm tra ai được ưu tiên.")
 
-    # Bảng rủi ro
-    st.subheader("🚩 Rủi ro phát hiện")
-    findings = res["findings"]
-    if not findings:
+    st.subheader("🚩 Rủi ro phát hiện (rule-based)")
+    if not res["findings"]:
         st.success("Không phát hiện mẫu câu rủi ro điển hình. Vẫn nên rà soát thủ công.")
-    for f in findings:
-        color = LEVEL_COLOR[f["level"]]
+    for f in res["findings"]:
         with st.expander(f"{flag(f['level'])} **[{LEVEL_LABEL[f['level']]}]** "
                          f"(Chủ đề {f['topic']}) {f['label']}"):
             st.markdown(f"**Vấn đề:** {f['problem']}")
-            st.markdown(f"> _Trích trong hợp đồng:_ “{f['quote']}”")
+            st.markdown(f"> _Trích:_ “{f['quote']}”")
             st.markdown(f"**Căn cứ:** {f['basis']}")
-            st.markdown(f"**Đề xuất đàm phán:** {f['suggest']}")
+            st.markdown(f"**Đề xuất:** {f['suggest']}")
 
-    # Độ phủ
-    st.subheader("📋 Độ phủ 21 chủ đề chuẩn")
-    cov = res["coverage"]
-    missing = [c for c in cov if not c["present"]]
-    colA, colB = st.columns([1, 1])
-    with colA:
-        st.markdown("**Chủ đề CÓ trong hợp đồng:**")
-        for c in cov:
-            if c["present"]:
-                st.markdown(f":green[✔] {c['id']}. {c['name']}")
-    with colB:
-        st.markdown("**Chủ đề THIẾU (cũng là rủi ro):**")
-        if not missing:
-            st.markdown("_Không thiếu chủ đề nào._")
+    missing = [c for c in res["coverage"] if not c["present"]]
+    if missing:
+        st.subheader("📋 Chủ đề chuẩn còn THIẾU")
         for c in missing:
             st.markdown(f"{flag(c['missing_risk'])} {c['id']}. {c['name']}")
             st.caption(c["missing_note"])
 
-    # Cảnh báo thuật ngữ tiếng Anh
-    if res["en_warnings"]:
-        st.subheader("🔤 Thuật ngữ tiếng Anh cần lưu ý")
-        for w in res["en_warnings"]:
-            st.markdown(f"- **{w['term']}** — {w['note']}")
 
-    # Comment trong file
-    if res["comments"]:
-        with st.expander(f"💬 {len(res['comments'])} ghi chú (comment) có sẵn trong file"):
-            for c in res["comments"]:
-                st.markdown(f"- **[{c['author']} – {c['date']}]** {c['text']}")
+# --------------------------------------------------------------------------- #
+# HIỂN THỊ KẾT QUẢ AI
+# --------------------------------------------------------------------------- #
+def render_ai(data, provider, model):
+    st.success(f"Báo cáo đầy đủ do AI lập — {provider} / {model}")
+    if data.get("vai_tro"):
+        st.markdown(f"**Vai trò tư vấn:** {data['vai_tro']}")
+    if data.get("nguon_von"):
+        st.markdown(f"**Nguồn vốn & trần phạt:** {data['nguon_von']}")
+    if data.get("tom_tat_dieu_hanh"):
+        st.markdown("**Tóm tắt điều hành:**")
+        st.info(data["tom_tat_dieu_hanh"])
+
+    rows = data.get("dieu_khoan") or []
+    if rows:
+        st.markdown(f"**Phân tích chi tiết ({len(rows)} điều khoản):**")
+        for it in rows:
+            lvl = str(it.get("muc_do", "CAM")).upper()
+            dot = ":red[●]" if "Đ" in lvl or "DO" in lvl or "CAO" in lvl else (
+                ":green[●]" if "XANH" in lvl else ":orange[●]")
+            with st.expander(f"{dot} {it.get('ref','(điều khoản)')} — {lvl}"):
+                st.markdown(f"**Vấn đề & căn cứ:** {it.get('van_de','')}")
+                st.markdown(f"**Đề xuất:** {it.get('de_xuat','')}")
+
+    if data.get("dieu_khoan_co_loi"):
+        st.markdown("**Điều khoản có lợi cần bảo vệ:**")
+        for x in data["dieu_khoan_co_loi"]:
+            st.markdown(f"- {x}")
+    if data.get("thieu_sot"):
+        st.markdown("**Nội dung còn thiếu:**")
+        for x in data["thieu_sot"]:
+            st.markdown(f"- {x}")
+    pri = data.get("uu_tien_dam_phan") or {}
+    if pri:
+        st.markdown("**Ưu tiên đàm phán:**")
+        for k, t in [("phai_dat", "🔴 Phải đạt"), ("nen_dat", "🟠 Nên đạt"), ("don_dep", "🟢 Dọn dẹp")]:
+            for x in (pri.get(k) or []):
+                st.markdown(f"- {t}: {x}")
 
 
 # --------------------------------------------------------------------------- #
@@ -144,54 +262,85 @@ def render_result(res):
 # --------------------------------------------------------------------------- #
 def main():
     st.title("📑 Rà soát pháp lý Hợp đồng tư vấn xây dựng — TEXO")
-    st.caption("Công cụ sàng lọc rủi ro hợp đồng theo góc nhìn ĐƠN VỊ TƯ VẤN (Bên B) — "
-               "TVGS, QLDA, thẩm tra, kiểm định, khảo sát, thiết kế. "
-               "Hoạt động bằng quy tắc (rule-based), **không dùng AI**.")
+    st.caption("Góc nhìn ĐƠN VỊ TƯ VẤN (Bên B): TVGS, QLDA, thẩm tra, kiểm định, khảo sát, thiết kế.")
 
     if not check_password():
         st.stop()
 
+    ai_cfg = sidebar_ai_config()
     with st.sidebar:
-        st.header("Hướng dẫn")
-        st.markdown(
-            "1. Tải lên hợp đồng **.docx** hoặc **.pdf** (PDF phải có chữ, không phải ảnh scan).\n"
-            "2. Xem bảng rủi ro & độ phủ chủ đề.\n"
-            "3. Tải **báo cáo Word** để đàm phán.\n\n"
-            "**Lưu ý:** đây là bước sàng lọc đầu, không thay thế luật sư."
-        )
         st.divider()
-        st.markdown("**Chú thích mức rủi ro**")
-        st.markdown(":red[●] Cao  ·  :orange[●] Trung bình  ·  :green[●] Ổn/Có lợi")
+        st.markdown("**Chú thích mức rủi ro:** :red[●] Cao · :orange[●] Trung bình · :green[●] Ổn/Có lợi")
         if st.button("Đăng xuất"):
-            st.session_state.clear()
-            st.rerun()
+            st.session_state.clear(); st.rerun()
+
+    if ai_cfg["enabled"] and ai_cfg.get("api_key"):
+        st.success("🧠 Chế độ **CÓ AI** đang bật — sẽ có nút tạo báo cáo đầy đủ sau khi rà soát.")
+    elif ai_cfg["enabled"]:
+        st.warning("Bạn đã bật AI nhưng **chưa nhập API key**. Hãy nhập key ở thanh bên, hoặc tắt AI để dùng bản rule-based.")
+    else:
+        st.info("Chế độ **KHÔNG AI** — báo cáo rút gọn, chạy cục bộ. Bật AI ở thanh bên nếu có API key.")
 
     up = st.file_uploader("Tải hợp đồng (.docx hoặc .pdf)", type=["docx", "pdf"])
     if not up:
-        st.info("Hãy tải lên một file hợp đồng để bắt đầu rà soát.")
         return
 
-    with st.spinner("Đang rà soát hợp đồng…"):
+    data_bytes = up.getvalue()
+    with st.spinner("Đang rà soát (rule-based)…"):
         try:
-            res = analyze(up.getvalue(), up.name)
+            res = analyze(data_bytes, up.name)
         except Exception as e:
             st.error(f"Lỗi khi đọc/phân tích file: {e}")
             return
 
-    render_result(res)
+    render_rule_based(res)
 
     st.divider()
+    cols = st.columns(2)
+    # Tải báo cáo rule-based
     try:
-        docx_bytes = build_report(res)
-        st.download_button(
-            "⬇️ Tải báo cáo Word (.docx)",
-            data=docx_bytes,
-            file_name=f"BaoCao_RaSoat_{os.path.splitext(up.name)[0]}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            type="primary",
-        )
+        with cols[0]:
+            st.download_button("⬇️ Tải báo cáo rút gọn (rule-based, .docx)",
+                data=build_report(res),
+                file_name=f"BaoCao_RutGon_{os.path.splitext(up.name)[0]}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                use_container_width=True)
     except Exception as e:
-        st.error(f"Không tạo được báo cáo Word: {e}")
+        st.error(f"Không tạo được báo cáo rút gọn: {e}")
+
+    # Luồng AI
+    if ai_cfg["enabled"] and ai_cfg.get("api_key"):
+        with cols[1]:
+            run_ai = st.button("🧠 Tạo báo cáo ĐẦY ĐỦ bằng AI", type="primary",
+                               use_container_width=True)
+        if run_ai:
+            paras, _ = extract(data_bytes, up.name)
+            full_text = "\n".join(paras)
+            with st.spinner("AI đang phân tích hợp đồng… (có thể mất 20–60 giây)"):
+                ai = llm.analyze_with_ai(res, full_text, ai_cfg["provider"],
+                                         ai_cfg["model"], ai_cfg["api_key"], ai_cfg["base_url"])
+            st.session_state["ai_result"] = ai
+            st.session_state["ai_for_file"] = up.name
+
+        ai = st.session_state.get("ai_result")
+        if ai and st.session_state.get("ai_for_file") == up.name:
+            st.divider()
+            if not ai.get("ok"):
+                st.error(f"AI lỗi: {ai.get('error')}")
+                if ai.get("raw"):
+                    with st.expander("Phản hồi thô từ AI"):
+                        st.code(ai["raw"])
+            else:
+                st.subheader("🧠 Báo cáo đầy đủ (AI)")
+                render_ai(ai["data"], ai["provider"], ai["model"])
+                try:
+                    st.download_button("⬇️ Tải báo cáo ĐẦY ĐỦ (AI, .docx)",
+                        data=build_ai_report(res, ai),
+                        file_name=f"BaoCao_DayDu_AI_{os.path.splitext(up.name)[0]}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        type="primary")
+                except Exception as e:
+                    st.error(f"Không tạo được báo cáo AI: {e}")
 
 
 if __name__ == "__main__":

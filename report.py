@@ -254,3 +254,128 @@ def build_report(result: dict) -> bytes:
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
+
+
+# =========================================================================== #
+# BÁO CÁO ĐẦY ĐỦ DO AI LẬP (khi người dùng bật "bộ não" AI)
+# =========================================================================== #
+_AI_LEVEL = {"ĐỎ": DO, "CAM": CAM, "XANH": XANH, "DO": DO, "RED": DO,
+             "CAO": DO, "TRUNG BÌNH": CAM, "TRUNG BINH": CAM}
+
+
+def _norm_level(v):
+    if not v:
+        return CAM
+    return _AI_LEVEL.get(str(v).strip().upper(), CAM)
+
+
+def build_ai_report(result: dict, ai: dict) -> bytes:
+    """Render báo cáo AI (dict JSON từ llm.analyze_with_ai -> ai['data']) ra Word A4."""
+    data = ai.get("data", {}) if ai else {}
+    doc = Document()
+    sec = doc.sections[0]
+    sec.page_width = Twips(11906)
+    sec.page_height = Twips(16838)
+    sec.left_margin = Twips(1440); sec.right_margin = Twips(1440)
+    sec.top_margin = Twips(1080); sec.bottom_margin = Twips(1080)
+    style = doc.styles["Normal"]; style.font.name = FONT; style.font.size = Pt(13)
+
+    meta = result.get("meta", {})
+    roles = result.get("roles") or {}
+    party = roles.get("party_label") or "Đơn vị tư vấn (Bên B)"
+
+    # Tiêu đề
+    _para(doc, "CÔNG TY CỔ PHẦN TEXO TƯ VẤN VÀ ĐẦU TƯ",
+          size=12, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
+    _para(doc, "BÁO CÁO RÀ SOÁT PHÁP LÝ HỢP ĐỒNG (BẢN ĐẦY ĐỦ)",
+          size=16, bold=True, color=C_HEAD, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
+    _para(doc, f"(Góc nhìn {party[0].upper() + party[1:]} — Bên B)",
+          size=12, italic=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
+    _para(doc, f"Ngày lập: {datetime.now().strftime('%d/%m/%Y')}  •  "
+               f"Hỗ trợ bởi AI: {ai.get('provider','')} / {ai.get('model','')}",
+          size=11, italic=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=10)
+
+    # 1. Bối cảnh
+    _heading(doc, "1. BỐI CẢNH & VAI TRÒ")
+    _para(doc, f"• Tệp hợp đồng: {meta.get('filename','')}.", space_after=2)
+    if data.get("vai_tro"):
+        _para(doc, f"• Vai trò tư vấn: {data['vai_tro']}", space_after=2)
+    if data.get("nguon_von"):
+        _para(doc, f"• Nguồn vốn & trần phạt: {data['nguon_von']}", space_after=2)
+    for n in roles.get("cross_role_flags", []):
+        _para(doc, f"• [Cờ đỏ – vượt vai trò] {n}", bold=True, color=C_DO, space_after=2)
+    _para(doc, "", space_after=4)
+
+    # 2. Tóm tắt điều hành
+    _heading(doc, "2. TÓM TẮT ĐIỀU HÀNH")
+    _para(doc, data.get("tom_tat_dieu_hanh", "(AI không trả về tóm tắt.)"), space_after=8)
+
+    # 3. Bảng phân tích điều khoản
+    _heading(doc, "3. PHÂN TÍCH CHI TIẾT ĐIỀU KHOẢN")
+    rows = data.get("dieu_khoan") or []
+    if not rows:
+        _para(doc, "(AI không trả về bảng điều khoản.)", italic=True, space_after=8)
+    else:
+        table = doc.add_table(rows=1, cols=3)
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        table.style = "Table Grid"
+        widths = [1500, 4400, 3126]
+        hdr = table.rows[0].cells
+        for c, label in enumerate(["Điều / Mức", "Vấn đề & căn cứ", "Đề xuất đàm phán"]):
+            _cell_text(hdr[c], label, size=11, bold=True, color=RGBColor(0xFF, 0xFF, 0xFF))
+            _shade(hdr[c], "1F3764")
+        for it in rows:
+            lvl = _norm_level(it.get("muc_do"))
+            row = table.add_row().cells
+            _cell_text(row[0], f"[{LEVEL_LABEL[lvl]}]", size=11, bold=True, color=LEVEL_RGB[lvl])
+            p = row[0].add_paragraph(); r = p.add_run(str(it.get("ref", ""))); _set_font(r, 10, italic=True)
+            _shade(row[0], LEVEL_FILL[lvl])
+            _cell_text(row[1], str(it.get("van_de", "")), size=11)
+            _cell_text(row[2], str(it.get("de_xuat", "")), size=11)
+        for row in table.rows:
+            for i, w in enumerate(widths):
+                row.cells[i].width = Twips(w)
+        _para(doc, "", space_after=6)
+
+    # 4. Điều khoản có lợi
+    favs = data.get("dieu_khoan_co_loi") or []
+    if favs:
+        _heading(doc, "4. ĐIỀU KHOẢN CÓ LỢI CẦN BẢO VỆ")
+        for x in favs:
+            _para(doc, f"• {x}", size=12, space_after=2)
+        _para(doc, "", space_after=4)
+
+    # 5. Thiếu sót
+    miss = data.get("thieu_sot") or []
+    if miss:
+        _heading(doc, "5. NỘI DUNG CÒN THIẾU CẦN BỔ SUNG")
+        for x in miss:
+            _para(doc, f"• {x}", size=12, space_after=2)
+        _para(doc, "", space_after=4)
+
+    # 6. Ưu tiên đàm phán
+    pri = data.get("uu_tien_dam_phan") or {}
+    if pri:
+        _heading(doc, "6. THỨ TỰ ƯU TIÊN ĐÀM PHÁN")
+        for k, title, col in [("phai_dat", "Phải đạt", C_DO),
+                              ("nen_dat", "Nên đạt", C_CAM),
+                              ("don_dep", "Dọn dẹp câu chữ", C_XANH)]:
+            items = pri.get(k) or []
+            if items:
+                _para(doc, title + ":", bold=True, color=col, space_after=2)
+                for x in items:
+                    _para(doc, f"• {x}", size=12, space_after=1)
+        _para(doc, "", space_after=4)
+
+    # 7. Lưu ý
+    _heading(doc, "7. LƯU Ý SỬ DỤNG")
+    _para(doc,
+          "Báo cáo bản đầy đủ do mô hình AT (trí tuệ nhân tạo) hỗ trợ phân tích trên nền bộ "
+          "tiêu chí rà soát hợp đồng tư vấn của TEXO, kết hợp lớp quét rule-based làm điểm "
+          "tựa. AI có thể sai sót hoặc diễn giải chưa chuẩn; mọi nhận định cần người có "
+          "chuyên môn kiểm chứng trên bản hợp đồng gốc trước khi đàm phán/ký. Đây không phải "
+          "ý kiến luật sư chính thức.", size=11, space_after=4)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
