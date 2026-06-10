@@ -32,6 +32,8 @@ C_HEAD = RGBColor(0x1F, 0x37, 0x64)
 C_GREY = RGBColor(0x70, 0x70, 0x70)
 LEVEL_RGB = {DO: C_DO, CAM: C_CAM, XANH: C_XANH}
 LEVEL_FILL = {DO: "F8CBAD", CAM: "FCE4D6", XANH: "E2EFDA"}
+LEVEL_ICON = {DO: "🔴", CAM: "🟠", XANH: "🟢"}
+FLAG_ICON = "🚩"
 
 FONT = "Times New Roman"
 CONTENT_WIDTH = 9026  # DXA, A4 trừ lề 1 inch mỗi bên
@@ -126,16 +128,36 @@ def _page_field(paragraph):
     _set_font(run, 9, color=C_GREY)
 
 
+def _cell_border(cell, edge, color, sz):
+    tcpr = cell._tc.get_or_add_tcPr()
+    borders = tcpr.find(qn("w:tcBorders"))
+    if borders is None:
+        borders = OxmlElement("w:tcBorders")
+        tcpr.append(borders)
+    e = OxmlElement(f"w:{edge}")
+    e.set(qn("w:val"), "single")
+    e.set(qn("w:sz"), str(sz))
+    e.set(qn("w:space"), "0")
+    e.set(qn("w:color"), color)
+    borders.append(e)
+
+
+def _add_tab_run(paragraph, color=None, size=9):
+    r = paragraph.add_run()
+    r._r.append(OxmlElement("w:tab"))
+    _set_font(r, size, color=color)
+
+
 def _setup_page(doc):
     sec = doc.sections[0]
     sec.page_width = Twips(11906)
     sec.page_height = Twips(16838)
     sec.left_margin = Twips(1440)
     sec.right_margin = Twips(1440)
-    sec.top_margin = Twips(1080)
+    sec.top_margin = Twips(1260)
     sec.bottom_margin = Twips(1080)
-    sec.header_distance = Twips(720)
-    sec.footer_distance = Twips(720)
+    sec.header_distance = Twips(560)
+    sec.footer_distance = Twips(560)
     style = doc.styles["Normal"]
     style.font.name = FONT
     style.font.size = Pt(13)
@@ -144,24 +166,37 @@ def _setup_page(doc):
 
 
 def _decorate_section(section):
-    # ----- Header chạy mọi trang -----
-    hp = section.header.paragraphs[0]
-    hp.text = ""
-    hp.paragraph_format.space_after = Pt(2)
-    hp.paragraph_format.tab_stops.add_tab_stop(Twips(CONTENT_WIDTH), WD_TAB_ALIGNMENT.RIGHT)
-    r1 = hp.add_run(COMPANY_NAME)
-    _set_font(r1, 9, bold=True, color=C_HEAD)
-    r2 = hp.add_run("\t" + DEPARTMENT)
-    _set_font(r2, 9, italic=True, color=C_GREY)
-    _para_border(hp, "bottom", "2E5496", 6, 4)
+    # ----- Header (letterhead) chạy mọi trang: 2 cột, công ty trái – phòng phải, gạch dưới
+    hdr = section.header
+    for para in list(hdr.paragraphs):
+        para._p.getparent().remove(para._p)
+    tbl = hdr.add_table(rows=1, cols=2, width=Twips(CONTENT_WIDTH))
+    tbl.autofit = False
+    left, right = tbl.rows[0].cells
+    left.width = Twips(6200)
+    right.width = Twips(CONTENT_WIDTH - 6200)
+    lp = left.paragraphs[0]
+    lp.paragraph_format.space_after = Pt(3)
+    _set_font(lp.add_run(COMPANY_NAME), 9, bold=True, color=C_HEAD)
+    rp = right.paragraphs[0]
+    rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    rp.paragraph_format.space_after = Pt(3)
+    _set_font(rp.add_run(DEPARTMENT.title()), 9, italic=True, color=C_GREY)
+    for cell in (left, right):
+        _cell_border(cell, "bottom", "2E5496", 6)
+    endp = hdr.add_paragraph()
+    endp.paragraph_format.space_after = Pt(0)
+    endp.paragraph_format.space_before = Pt(0)
+    _set_font(endp.add_run(""), 2)
 
     # ----- Footer chạy mọi trang -----
     fp = section.footer.paragraphs[0]
     fp.text = ""
     fp.paragraph_format.tab_stops.add_tab_stop(Twips(CONTENT_WIDTH), WD_TAB_ALIGNMENT.RIGHT)
-    rf = fp.add_run(f"Báo cáo rà soát hợp đồng — {DEPARTMENT.title()} — Trưởng phòng: {HEAD_OF_DEPT}")
+    rf = fp.add_run(f"Phòng Kỹ thuật — Trưởng phòng: {HEAD_OF_DEPT}")
     _set_font(rf, 9, color=C_GREY)
-    rt = fp.add_run("\tTrang ")
+    _add_tab_run(fp, color=C_GREY)
+    rt = fp.add_run("Trang ")
     _set_font(rt, 9, color=C_GREY)
     _page_field(fp)
     _para_border(fp, "top", "BFBFBF", 4, 4)
@@ -179,8 +214,9 @@ def _remove_table_borders(table):
 
 
 def _signature_block(doc):
+    now = datetime.now()
     _para(doc, "", space_after=6)
-    _para(doc, f"Hà Nội, ngày …… tháng …… năm {datetime.now().year}",
+    _para(doc, f"Hà Nội, ngày {now:%d} tháng {now:%m} năm {now:%Y}",
           size=12, italic=True, align=WD_ALIGN_PARAGRAPH.RIGHT, space_after=4)
     t = doc.add_table(rows=1, cols=2)
     t.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -206,12 +242,10 @@ def _signature_block(doc):
 
 
 def _title_block(doc, subtitle, extra_line=""):
-    _para(doc, COMPANY_NAME, size=12, bold=True,
-          align=WD_ALIGN_PARAGRAPH.CENTER, space_after=1)
-    _para(doc, DEPARTMENT, size=12, bold=True, color=C_HEAD,
-          align=WD_ALIGN_PARAGRAPH.CENTER, space_after=8)
-    _para(doc, "BÁO CÁO RÀ SOÁT PHÁP LÝ HỢP ĐỒNG", size=17, bold=True, color=C_HEAD,
-          align=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
+    # Tên công ty/phòng đã nằm ở header letterhead -> tiêu đề KHÔNG lặp lại, vào thẳng tên báo cáo.
+    _para(doc, "", space_after=6)
+    _para(doc, "BÁO CÁO RÀ SOÁT PHÁP LÝ HỢP ĐỒNG", size=18, bold=True, color=C_HEAD,
+          align=WD_ALIGN_PARAGRAPH.CENTER, space_after=3)
     _para(doc, subtitle, size=12, italic=True,
           align=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
     if extra_line:
@@ -267,7 +301,7 @@ def build_report(result: dict) -> bytes:
         if pm.get("independence"):
             _para(doc, f"• Yêu cầu độc lập: {pm['independence']}", size=11, space_after=2)
         for note in roles.get("cross_role_flags", []):
-            _para(doc, f"• [Cờ đỏ – vượt vai trò] {note}", size=11, bold=True, color=C_DO, space_after=2)
+            _para(doc, f"{FLAG_ICON} Vượt vai trò: {note}", size=11, bold=True, color=C_DO, space_after=2)
         _para(doc, "", space_after=6)
         n3, n4, n5 = "3", "4", "5"
     else:
@@ -303,7 +337,7 @@ def build_report(result: dict) -> bytes:
             _shade(hdr[c], "1F3764")
         for f in findings:
             row = table.add_row().cells
-            _cell_text(row[0], f"[{LEVEL_LABEL[f['level']]}]", size=11, bold=True,
+            _cell_text(row[0], f"{LEVEL_ICON[f['level']]} {LEVEL_LABEL[f['level']]}", size=11, bold=True,
                        color=LEVEL_RGB[f["level"]])
             _add_cell_line(row[0], "Chủ đề ", str(f["topic"]))
             p = row[0].add_paragraph()
@@ -334,8 +368,8 @@ def build_report(result: dict) -> bytes:
             _shade(hdr[c], "1F3764")
         for m in missing:
             row = t2.add_row().cells
-            _cell_text(row[0], LEVEL_LABEL[m["missing_risk"]], size=10, bold=True,
-                       color=LEVEL_RGB[m["missing_risk"]])
+            _cell_text(row[0], f"{LEVEL_ICON[m['missing_risk']]} {LEVEL_LABEL[m['missing_risk']]}",
+                       size=10, bold=True, color=LEVEL_RGB[m["missing_risk"]])
             _cell_text(row[1], f"{m['id']}. {m['name']}", size=11)
             _cell_text(row[2], m["missing_note"], size=11)
             _shade(row[0], LEVEL_FILL[m["missing_risk"]])
@@ -400,7 +434,7 @@ def build_ai_report(result: dict, ai: dict) -> bytes:
     if data.get("nguon_von"):
         _para(doc, f"• Nguồn vốn & trần phạt: {data['nguon_von']}", space_after=2)
     for n in roles.get("cross_role_flags", []):
-        _para(doc, f"• [Cờ đỏ – vượt vai trò] {n}", bold=True, color=C_DO, space_after=2)
+        _para(doc, f"{FLAG_ICON} Vượt vai trò: {n}", bold=True, color=C_DO, space_after=2)
     _para(doc, "", space_after=4)
 
     _heading(doc, "2. TÓM TẮT ĐIỀU HÀNH")
@@ -422,7 +456,7 @@ def build_ai_report(result: dict, ai: dict) -> bytes:
         for it in rows:
             lvl = _norm_level(it.get("muc_do"))
             row = table.add_row().cells
-            _cell_text(row[0], f"[{LEVEL_LABEL[lvl]}]", size=11, bold=True, color=LEVEL_RGB[lvl])
+            _cell_text(row[0], f"{LEVEL_ICON[lvl]} {LEVEL_LABEL[lvl]}", size=11, bold=True, color=LEVEL_RGB[lvl])
             p = row[0].add_paragraph(); r = p.add_run(str(it.get("ref", ""))); _set_font(r, 10, italic=True)
             _shade(row[0], LEVEL_FILL[lvl])
             _cell_text(row[1], str(it.get("van_de", "")), size=11)
