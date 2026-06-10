@@ -106,17 +106,13 @@ def sidebar_ai_config():
                                    format_func=lambda i: labels[i], index=idx)]
     prov = llm.PROVIDERS[pid]
 
-    model = st.sidebar.text_input(
-        "Model", value=saved.get("models", {}).get(pid, prov["default_model"]),
-        help=prov["models_note"])
     base_url = ""
     if prov["needs_base_url"]:
         base_url = st.sidebar.text_input(
             "Base URL (BẮT BUỘC)", value=saved.get("base_urls", {}).get(pid, ""),
             placeholder="https://openrouter.ai/api/v1",
             help="Bắt buộc cho loại tương thích OpenAI. OpenRouter: https://openrouter.ai/api/v1 "
-                 "— và đặt tên model dạng 'nhà_cung_cấp/model', vd 'openai/gpt-4o' hoặc "
-                 "'anthropic/claude-3.5-sonnet'.")
+                 "— và tên model dạng 'nhà_cung_cấp/model', vd 'openai/gpt-4o'.")
         if not base_url.strip():
             st.sidebar.error("⚠️ Chưa điền Base URL → sẽ bị gọi nhầm sang OpenAI và báo lỗi key. "
                              "OpenRouter dùng: https://openrouter.ai/api/v1")
@@ -124,7 +120,7 @@ def sidebar_ai_config():
         "API key", value=saved.get("keys", {}).get(pid, ""), type="password",
         help=prov["key_hint"])
 
-    # Lấy danh sách model thực tế mà key này dùng được (tránh đoán sai tên model)
+    # Lấy danh sách model thực tế mà key này dùng được (thay cho ô nhập model thủ công)
     if st.sidebar.button("🔄 Lấy danh sách model", use_container_width=True):
         if not api_key:
             st.sidebar.warning("Nhập API key trước đã.")
@@ -141,13 +137,24 @@ def sidebar_ai_config():
                 st.sidebar.info("Key hợp lệ nhưng không có model nào dùng được.")
             else:
                 st.sidebar.error(f"Lỗi lấy model: {res}")
+
     fetched = st.session_state.get(f"models_{pid}")
+    model = ""
     if fetched:
-        pick = st.sidebar.selectbox(
-            "Model có sẵn (chọn để dùng)", ["(giữ ô Model ở trên)"] + fetched, index=0)
-        if pick != "(giữ ô Model ở trên)":
-            model = pick
-            st.sidebar.caption(f"Đang dùng model: **{model}**")
+        saved_model = saved.get("models", {}).get(pid)
+        prefer = ["flash-latest", "2.5-flash", "gpt-4o", "sonnet", "flash", "pro"]
+        if saved_model in fetched:
+            idx = fetched.index(saved_model)
+        else:
+            idx = 0
+            for kw in prefer:
+                hit = next((i for i, m in enumerate(fetched) if kw in m.lower()), None)
+                if hit is not None:
+                    idx = hit
+                    break
+        model = st.sidebar.selectbox("Model (chọn từ danh sách)", fetched, index=idx)
+    else:
+        st.sidebar.info("Bấm **🔄 Lấy danh sách model** rồi chọn model để dùng.")
 
     remember = st.sidebar.checkbox("Ghi nhớ key tại máy này", value=bool(saved.get("keys", {}).get(pid)))
 
@@ -168,6 +175,8 @@ def sidebar_ai_config():
     if col2.button("🧪 Kiểm tra", use_container_width=True):
         if not api_key:
             st.sidebar.warning("Chưa nhập key.")
+        elif not model:
+            st.sidebar.warning("Hãy bấm 'Lấy danh sách model' và chọn model trước.")
         else:
             with st.sidebar:
                 with st.spinner("Đang kiểm tra kết nối…"):
@@ -305,8 +314,10 @@ def main():
         if st.button("Đăng xuất"):
             st.session_state.clear(); st.rerun()
 
-    if ai_cfg["enabled"] and ai_cfg.get("api_key"):
+    if ai_cfg["enabled"] and ai_cfg.get("api_key") and ai_cfg.get("model"):
         st.success("🧠 Chế độ **CÓ AI** đang bật — sẽ có nút tạo báo cáo đầy đủ sau khi rà soát.")
+    elif ai_cfg["enabled"] and ai_cfg.get("api_key"):
+        st.warning("Đã có API key nhưng **chưa chọn model**. Ở thanh bên bấm **🔄 Lấy danh sách model** rồi chọn một model.")
     elif ai_cfg["enabled"]:
         st.warning("Bạn đã bật AI nhưng **chưa nhập API key**. Hãy nhập key ở thanh bên, hoặc tắt AI để dùng bản rule-based.")
     else:
@@ -340,7 +351,7 @@ def main():
         st.error(f"Không tạo được báo cáo rút gọn: {e}")
 
     # Luồng AI
-    if ai_cfg["enabled"] and ai_cfg.get("api_key"):
+    if ai_cfg["enabled"] and ai_cfg.get("api_key") and ai_cfg.get("model"):
         with cols[1]:
             run_ai = st.button("🧠 Tạo báo cáo ĐẦY ĐỦ bằng AI", type="primary",
                                use_container_width=True)
@@ -363,6 +374,10 @@ def main():
                         st.code(ai["raw"])
             else:
                 st.subheader("🧠 Báo cáo đầy đủ (AI)")
+                if ai.get("truncated"):
+                    st.warning("Phản hồi AI dài và có thể bị cắt cụt — báo cáo đã được vá để "
+                               "đọc được nhưng có thể thiếu phần cuối. Thử model có giới hạn "
+                               "đầu ra lớn hơn (vd gemini-2.5-pro) hoặc rà soát hợp đồng ngắn hơn.")
                 render_ai(ai["data"], ai["provider"], ai["model"])
                 try:
                     st.download_button("⬇️ Tải báo cáo ĐẦY ĐỦ (AI, .docx)",

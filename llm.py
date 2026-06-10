@@ -164,12 +164,15 @@ def build_user_prompt(result, contract_text):
 # --------------------------------------------------------------------------- #
 # Gọi API từng nhà cung cấp
 # --------------------------------------------------------------------------- #
+MAX_OUTPUT_TOKENS = 32000  # đủ rộng để báo cáo dài không bị cắt cụt
+
+
 def _call_anthropic(model, key, system, user, base_url=None):
     url = (base_url or "https://api.anthropic.com").rstrip("/") + "/v1/messages"
     r = requests.post(url, timeout=DEFAULT_TIMEOUT,
         headers={"x-api-key": key, "anthropic-version": "2023-06-01",
                  "content-type": "application/json"},
-        json={"model": model, "max_tokens": 8000, "system": system,
+        json={"model": model, "max_tokens": 16000, "system": system,
               "messages": [{"role": "user", "content": user}]})
     r.raise_for_status()
     data = r.json()
@@ -183,14 +186,23 @@ def _call_gemini(model, key, system, user, base_url=None):
         headers={"content-type": "application/json"},
         json={"systemInstruction": {"parts": [{"text": system}]},
               "contents": [{"role": "user", "parts": [{"text": user}]}],
-              "generationConfig": {"temperature": 0.2, "maxOutputTokens": 8192}})
+              "generationConfig": {"temperature": 0.2, "maxOutputTokens": MAX_OUTPUT_TOKENS}})
     r.raise_for_status()
     data = r.json()
     cands = data.get("candidates", [])
     if not cands:
-        raise RuntimeError("Gemini không trả về nội dung (có thể bị chặn an toàn).")
+        fb = (data.get("promptFeedback") or {}).get("blockReason")
+        raise RuntimeError(f"Gemini không trả về nội dung"
+                           + (f" (bị chặn: {fb})." if fb else " (có thể bị chặn an toàn)."))
     parts = cands[0].get("content", {}).get("parts", [])
-    return "".join(p.get("text", "") for p in parts)
+    text = "".join(p.get("text", "") for p in parts)
+    fr = cands[0].get("finishReason")
+    if not text:
+        # model 2.5 'thinking' có thể tiêu hết token đầu ra mà chưa kịp xuất text
+        raise RuntimeError(
+            f"Gemini không trả về văn bản (finishReason={fr}). Thử lại, đổi sang model "
+            "không-thinking (vd gemini-2.0-flash-001) hoặc model 'flash' nhẹ hơn.")
+    return text
 
 
 def _call_openai(model, key, system, user, base_url=None):
@@ -230,6 +242,45 @@ def call_llm(provider, model, key, system, user, base_url=None):
 # --------------------------------------------------------------------------- #
 # Parse JSON từ phản hồi (chịu lỗi)
 # --------------------------------------------------------------------------- #
+def _balance_json(s):
+    """Vá JSON bị CẮT CỤT: đóng chuỗi/ngoặc còn mở, bỏ phần tử dở ở cuối.
+    Dùng khi model trả về vượt giới hạn token nên thiếu dấu đóng."""
+    i = s.find("{")
+    if i == -1:
+        return s
+    s = s[i:]
+    out, stack, in_str, esc = [], [], False, False
+    for ch in s:
+        if in_str:
+            out.append(ch)
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True; out.append(ch)
+        elif ch in "{[":
+            stack.append(ch); out.append(ch)
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+            out.append(ch)
+        else:
+            out.append(ch)
+    res = "".join(out)
+    if in_str:                       # chuỗi bị cắt giữa chừng -> đóng lại
+        res += '"'
+    res = res.rstrip()
+    while res and res[-1] in ",:":   # bỏ dấu phẩy/hai chấm thừa ở cuối
+        res = res[:-1].rstrip()
+    for ch in reversed(stack):       # đóng các ngoặc còn mở
+        res += "}" if ch == "{" else "]"
+    return res
+
+
 def _extract_json(text):
     text = text.strip()
     # bỏ rào ```json ... ```
@@ -246,6 +297,11 @@ def _extract_json(text):
             return json.loads(text[start:end + 1])
         except Exception:
             pass
+    # vá JSON bị cắt cụt (vượt giới hạn token)
+    try:
+        return json.loads(_balance_json(text))
+    except Exception:
+        pass
     return None
 
 
@@ -340,4 +396,7 @@ def analyze_with_ai(result, contract_text, provider, model, key, base_url=None):
     parsed = _extract_json(raw)
     if not parsed:
         return {"ok": False, "error": "AI trả về không phải JSON hợp lệ.", "raw": raw[:4000]}
-    return {"ok": True, "provider": provider, "model": model, "data": parsed}
+    # nếu phải vá (raw không kết thúc bằng '}') -> phản hồi có thể bị cắt cụt
+    truncated = not raw.strip().rstrip("`").rstrip().endswith("}")
+    return {"ok": True, "provider": provider, "model": model,
+            "data": parsed, "truncated": truncated}
