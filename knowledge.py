@@ -10,8 +10,9 @@ Toàn bộ tri thức pháp lý được mã hóa tĩnh ở đây — KHÔNG dù
                 tới chủ đề đó không). Thiếu chủ đề = cũng là rủi ro cần cảnh báo.
 
 Nguồn: checklist/tieu_chi_chung.md + reference/mau_TT02_2023.md của skill
-texo-hopdong-checker (TEXO). Đối chiếu: TT 02/2023/TT-BXD (Phụ lục II), Điều 19
-NĐ 06/2021, NĐ 175/2024, Luật Xây dựng, Luật Thương mại, BLDS, NĐ 13/2023.
+texo-hopdong-checker (TEXO). Đối chiếu: TT 02/2023/TT-BXD (Phụ lục II), Điều 20
+NĐ 207/2026 (thay NĐ 06/2021), NĐ 212/2026 (thay NĐ 175/2024), Luật XD 135/2025/QH15,
+Luật Thương mại, BLDS, NĐ 13/2023.
 """
 
 # Mức rủi ro
@@ -55,7 +56,7 @@ RISK_RULES = [
         "label": "Gán {TV} 'thẩm tra / tối ưu hóa thiết kế'",
         "pattern": r"thẩm tra thiết kế|tối ưu (hóa|hoá) thiết kế|design (review|verification|optimi[sz]ation)|kiểm định thiết kế",
         "problem": "Thẩm tra thiết kế là năng lực RIÊNG, không thuộc phạm vi giám sát thi công; gán cho {TV} làm phình trách nhiệm vượt năng lực/giấy phép.",
-        "basis": "Điều 104 NĐ 175/2024 (năng lực thẩm tra thiết kế) tách biệt với Điều 107 (giám sát); Điều 19 NĐ 06/2021 giới hạn phạm vi giám sát.",
+        "basis": "Điều 20 NĐ 207/2026 giới hạn phạm vi giám sát; năng lực thẩm tra thiết kế (NĐ 212/2026) tách biệt với năng lực giám sát thi công.",
         "suggest": "Sửa thành 'rà soát, phát hiện bất cập, báo cáo CĐT'; nếu cần thẩm tra phải tách hợp đồng/phụ lục và điều chỉnh phí.",
     },
     {
@@ -64,7 +65,7 @@ RISK_RULES = [
         "label": "Gán {TV} 'phê duyệt' biện pháp/hồ sơ nhà thầu",
         "pattern": r"(tư vấn giám sát|tvgs|bên b).{0,40}phê duyệt|phê duyệt biện pháp (thi công|tổ chức)|approve.{0,30}(method statement|construction method)",
         "problem": "Giám sát chỉ 'kiểm tra, có ý kiến chấp thuận'; phê duyệt biện pháp thi công là việc của CĐT. Gán phê duyệt = nhận trách nhiệm thay CĐT.",
-        "basis": "Điều 19.1.b/c NĐ 06/2021: {TV} kiểm tra và chấp thuận; biện pháp do nhà thầu lập, CĐT phê duyệt.",
+        "basis": "Điều 20.1.b NĐ 207/2026: {TV} kiểm tra và chấp thuận; biện pháp do nhà thầu lập, CĐT phê duyệt.",
         "suggest": "Sửa thành 'kiểm tra, xem xét và có ý kiến/chấp thuận'; quyền phê duyệt thuộc CĐT.",
     },
     {
@@ -73,7 +74,7 @@ RISK_RULES = [
         "label": "Phạm vi 'bao gồm nhưng không giới hạn'",
         "pattern": r"bao gồm nhưng không giới hạn|bao gồm và không giới hạn|including but not limited|without limitation",
         "problem": "Cụm này mở phạm vi vô hạn, cho phép CĐT yêu cầu thêm việc ngoài dự kiến mà không tăng phí.",
-        "basis": "Điều 19 NĐ 06/2021 (phạm vi giám sát có giới hạn); mẫu TT02 gắn phạm vi với phụ lục công việc cụ thể.",
+        "basis": "Điều 20 NĐ 207/2026 (phạm vi giám sát có giới hạn); mẫu TT02 gắn phạm vi với phụ lục công việc cụ thể.",
         "suggest": "Giới hạn phạm vi theo Phụ lục công việc; việc ngoài phạm vi phải lập phụ lục và điều chỉnh phí.",
     },
     {
@@ -82,7 +83,7 @@ RISK_RULES = [
         "label": "Gán {TV} 'lập/thu thập hồ sơ nghiệm thu, hoàn công'",
         "pattern": r"(lập|thu thập|sắp xếp|hoàn thiện).{0,30}hồ sơ (nghiệm thu|hoàn công|hoàn thành)|(tvgs|bên b).{0,30}hồ sơ hoàn công",
         "problem": "Lập hồ sơ nghiệm thu/hoàn công là việc của nhà thầu và CĐT; {TV} chỉ kiểm tra và ký xác nhận.",
-        "basis": "Điều 13.17 (nhà thầu) và Điều 14.11 (CĐT) NĐ 06/2021; {TV} tham gia nghiệm thu, ký xác nhận.",
+        "basis": "NĐ 207/2026: nhà thầu và CĐT lập hồ sơ nghiệm thu/hoàn công; {TV} kiểm tra và ký xác nhận.",
         "suggest": "Sửa: {TV} 'kiểm tra, tham gia nghiệm thu, ký xác nhận'; việc lập hồ sơ thuộc nhà thầu/CĐT.",
     },
     # --- Chủ đề 16: Phạt & bồi thường ---
@@ -92,8 +93,8 @@ RISK_RULES = [
         "label": "Phạt % tính trên TỔNG giá trị hợp đồng",
         "pattern": r"phạt.{0,40}(tổng giá trị hợp đồng|giá trị hợp đồng)|penalty.{0,30}total contract|(8|10|12)\s*%.{0,20}(tổng )?giá trị hợp đồng",
         "problem": "Phạt phải tính trên phần nghĩa vụ bị vi phạm, không phải tổng HĐ. Tính trên tổng HĐ làm mức phạt phình to bất hợp lý.",
-        "basis": "Điều 146 Luật Xây dựng / Điều 301 Luật Thương mại: phạt trên giá trị phần nghĩa vụ bị vi phạm; trần 8% (Luật TM, ngoài vốn NN) / 12% (Luật XD, vốn NN).",
-        "suggest": "Sửa: phạt tính trên 'giá trị phần nghĩa vụ bị vi phạm'; ấn định trần tổng phạt ≤ 8% (hoặc 12%).",
+        "basis": "Điều 86 Luật XD 135/2025: phạt trên giá trị phần nghĩa vụ bị vi phạm; trần 12% (vốn đầu tư công/PPP) / không có trần Luật XD cho vốn tư nhân → Luật TM Điều 301: 8% nếu cả hai bên là thương nhân.",
+        "suggest": "Sửa: phạt tính trên 'giá trị phần nghĩa vụ bị vi phạm'; ấn định trần tổng phạt ≤ 8% (vốn tư nhân/FDI) hoặc ≤ 12% (vốn nhà nước/PPP).",
     },
     {
         "id": "penalty_no_cap",
@@ -324,7 +325,7 @@ TOPICS = [
     {"id": 3, "name": "Phạm vi & nội dung công việc",
      "keywords": ["phạm vi", "nội dung công việc", "công việc tư vấn", "scope", "dịch vụ tư vấn", "nhiệm vụ giám sát"],
      "missing_risk": DO,
-     "missing_note": "Không thấy mô tả phạm vi công việc rõ ràng — rủi ro bị suy diễn mở rộng nghĩa vụ. Đối chiếu Điều 19 NĐ 06/2021."},
+     "missing_note": "Không thấy mô tả phạm vi công việc rõ ràng — rủi ro bị suy diễn mở rộng nghĩa vụ. Đối chiếu Điều 20 NĐ 207/2026."},
 
     {"id": 4, "name": "Chất lượng sản phẩm / tiêu chuẩn",
      "keywords": ["chất lượng", "tiêu chuẩn", "quy chuẩn", "yêu cầu kỹ thuật", "quality", "standard"],

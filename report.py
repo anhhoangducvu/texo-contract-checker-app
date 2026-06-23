@@ -308,7 +308,7 @@ def build_report(result: dict) -> bytes:
         n3, n4, n5 = "2", "3", "4"
 
     # Tóm tắt
-    _heading(doc, f"{n3}. TÓM TẮT ĐIỀU HÀNH")
+    _heading(doc, f"{n3}. TỔNG QUAN CHUNG")
     _para(doc,
           f"Phát hiện {summary[DO]} rủi ro mức CAO (đỏ), {summary[CAM]} rủi ro mức "
           f"TRUNG BÌNH (cam), và {summary['missing']} chủ đề chuẩn không thấy xuất hiện "
@@ -427,8 +427,32 @@ def build_ai_report(result: dict, ai: dict) -> bytes:
         f"Đơn vị rà soát: {DEPARTMENT.title()}  •  "
         f"Hỗ trợ phân tích bởi AI: {ai.get('provider','')} / {ai.get('model','')}")
 
-    _heading(doc, "1. BỐI CẢNH & VAI TRÒ")
-    _para(doc, f"• Tệp hợp đồng: {meta.get('filename','')}.", space_after=2)
+    # ---- BẢNG THÔNG TIN HỢP ĐỒNG ----
+    hd = data.get("thong_tin_hop_dong") or {}
+    _heading(doc, "1. THÔNG TIN HỢP ĐỒNG")
+    meta_rows = [
+        ("Tên dự án / Công trình", hd.get("ten_du_an") or meta.get("filename", "")),
+        ("Chủ đầu tư (Bên A)",     hd.get("ten_cdt", "—")),
+        ("Đơn vị tư vấn (Bên B)",  hd.get("ten_tu_van", "—")),
+        ("Số hiệu hợp đồng",        hd.get("so_hop_dong", "—")),
+        ("Gói thầu",                hd.get("goi_thau", "—")),
+        ("Giá trị hợp đồng",        hd.get("gia_hop_dong", "—")),
+        ("Thời hạn thực hiện",      hd.get("thoi_han", "—")),
+        ("Loại hợp đồng",           hd.get("loai_hop_dong", "—")),
+    ]
+    tbl_hd = doc.add_table(rows=len(meta_rows), cols=2)
+    tbl_hd.alignment = WD_TABLE_ALIGNMENT.CENTER
+    tbl_hd.style = "Table Grid"
+    for i, (label, value) in enumerate(meta_rows):
+        cells = tbl_hd.rows[i].cells
+        _cell_text(cells[0], label, size=11, bold=True)
+        _shade(cells[0], "D9E1F2")
+        _cell_text(cells[1], value, size=11)
+        cells[0].width = Twips(2800)
+        cells[1].width = Twips(6226)
+    _para(doc, "", space_after=6)
+
+    _heading(doc, "2. BỐI CẢNH & VAI TRÒ")
     if data.get("vai_tro"):
         _para(doc, f"• Vai trò tư vấn: {data['vai_tro']}", space_after=2)
     if data.get("nguon_von"):
@@ -437,10 +461,12 @@ def build_ai_report(result: dict, ai: dict) -> bytes:
         _para(doc, f"{FLAG_ICON} Vượt vai trò: {n}", bold=True, color=C_DO, space_after=2)
     _para(doc, "", space_after=4)
 
-    _heading(doc, "2. TÓM TẮT ĐIỀU HÀNH")
-    _para(doc, data.get("tom_tat_dieu_hanh", "(AI không trả về tóm tắt.)"), space_after=8)
+    _heading(doc, "3. TỔNG QUAN CHUNG")
+    tqc = (data.get("tong_quan_chung") or data.get("tom_tat_dieu_hanh")
+           or "(AI không trả về tổng quan.)")
+    _para(doc, tqc, space_after=8)
 
-    _heading(doc, "3. PHÂN TÍCH CHI TIẾT ĐIỀU KHOẢN")
+    _heading(doc, "4. PHÂN TÍCH CHI TIẾT — 21 CHỦ ĐỀ RỦI RO CHUẨN")
     rows = data.get("dieu_khoan") or []
     if not rows:
         _para(doc, "(AI không trả về bảng điều khoản.)", italic=True, space_after=8)
@@ -448,41 +474,53 @@ def build_ai_report(result: dict, ai: dict) -> bytes:
         table = doc.add_table(rows=1, cols=3)
         table.alignment = WD_TABLE_ALIGNMENT.CENTER
         table.style = "Table Grid"
-        widths = [1500, 4400, 3126]
+        widths = [1600, 4300, 3126]
         hdr = table.rows[0].cells
-        for c, label in enumerate(["Điều / Mức", "Vấn đề & căn cứ", "Đề xuất đàm phán"]):
+        for c, label in enumerate(["Chủ đề / Điều / Mức", "Vấn đề & căn cứ pháp lý", "Đề xuất đàm phán"]):
             _cell_text(hdr[c], label, size=11, bold=True, color=RGBColor(0xFF, 0xFF, 0xFF))
             _shade(hdr[c], "1F3764")
         for it in rows:
             lvl = _norm_level(it.get("muc_do"))
             row = table.add_row().cells
+            # Cột 1: Chủ đề + tên điều
+            chu_de = str(it.get("chu_de", ""))
+            ref_txt = str(it.get("ref", ""))
             _cell_text(row[0], f"{LEVEL_ICON[lvl]} {LEVEL_LABEL[lvl]}", size=11, bold=True, color=LEVEL_RGB[lvl])
-            p = row[0].add_paragraph(); r = p.add_run(str(it.get("ref", ""))); _set_font(r, 10, italic=True)
+            if chu_de:
+                p_cd = row[0].add_paragraph()
+                r_cd = p_cd.add_run(f"Chủ đề {chu_de}"); _set_font(r_cd, 10, bold=True)
+            if ref_txt and ref_txt != "Thiếu":
+                p_ref = row[0].add_paragraph()
+                r_ref = p_ref.add_run(ref_txt); _set_font(r_ref, 10, italic=True)
+            elif ref_txt == "Thiếu":
+                p_ref = row[0].add_paragraph()
+                r_ref = p_ref.add_run("⚠ Thiếu điều khoản"); _set_font(r_ref, 10, bold=True)
+                r_ref.font.color.rgb = C_CAM
             _shade(row[0], LEVEL_FILL[lvl])
             _cell_text(row[1], str(it.get("van_de", "")), size=11)
             _cell_text(row[2], str(it.get("de_xuat", "")), size=11)
         for row in table.rows:
             for i, w in enumerate(widths):
-                row.cells[i].width = Twips(w)
+                            row.cells[i].width = Twips(w)
         _para(doc, "", space_after=6)
 
     favs = data.get("dieu_khoan_co_loi") or []
     if favs:
-        _heading(doc, "4. ĐIỀU KHOẢN CÓ LỢI CẦN BẢO VỆ")
+        _heading(doc, "5. ĐIỀU KHOẢN CÓ LỢI CẦN BẢO VỆ")
         for x in favs:
             _para(doc, f"• {x}", size=12, space_after=2)
         _para(doc, "", space_after=4)
 
     miss = data.get("thieu_sot") or []
     if miss:
-        _heading(doc, "5. NỘI DUNG CÒN THIẾU CẦN BỔ SUNG")
+        _heading(doc, "6. NỘI DUNG CÒN THIẾU CẦN BỔ SUNG")
         for x in miss:
             _para(doc, f"• {x}", size=12, space_after=2)
         _para(doc, "", space_after=4)
 
     pri = data.get("uu_tien_dam_phan") or {}
     if pri:
-        _heading(doc, "6. THỨ TỰ ƯU TIÊN ĐÀM PHÁN")
+        _heading(doc, "7. THỨ TỰ ƯU TIÊN ĐÀM PHÁN")
         for k, title, col in [("phai_dat", "Phải đạt", C_DO),
                               ("nen_dat", "Nên đạt", C_CAM),
                               ("don_dep", "Dọn dẹp câu chữ", C_XANH)]:
@@ -493,10 +531,10 @@ def build_ai_report(result: dict, ai: dict) -> bytes:
                     _para(doc, f"• {x}", size=12, space_after=1)
         _para(doc, "", space_after=4)
 
-    _heading(doc, "7. LƯU Ý SỬ DỤNG")
+    _heading(doc, "8. LƯU Ý SỬ DỤNG")
     _para(doc,
           "Báo cáo bản đầy đủ do mô hình AI hỗ trợ phân tích trên nền bộ tiêu chí rà soát "
-          "hợp đồng tư vấn của TEXO, kết hợp lớp quét rule-based làm điểm tựa. AI có thể sai "
+          "hợp đồng tư vấn của TEXO, kết hợp lớp quét tự động làm điểm tựa. AI có thể sai "
           "sót hoặc diễn giải chưa chuẩn; mọi nhận định cần người có chuyên môn kiểm chứng "
           "trên bản hợp đồng gốc trước khi đàm phán/ký. Đây không phải ý kiến luật sư chính thức.",
           size=11, space_after=4)

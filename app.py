@@ -3,9 +3,9 @@
 TEXO — Rà soát pháp lý Hợp đồng tư vấn xây dựng (phiên bản web).
 
 Hai chế độ:
-  • KHÔNG AI (mặc định): quét rule-based — miễn phí, riêng tư, chạy cục bộ.
+  • KHÔNG AI (mặc định): quét tự động theo quy tắc — miễn phí, riêng tư, chạy cục bộ.
   • CÓ AI ("bộ não"): người dùng tự dán API key (Claude/Gemini/OpenAI/tương thích OpenAI)
-    để có báo cáo ĐẦY ĐỦ đúng tinh thần skill. AI bổ sung trên nền rule-based.
+    để có báo cáo ĐẦY ĐỦ đúng tinh thần skill. AI bổ sung trên nền phân tích tự động.
 
 Bảo mật: cổng mật khẩu (mặc định 'texo2026'). Khi bật AI, toàn văn hợp đồng được gửi tới
 nhà cung cấp đã chọn — người dùng tự chịu trách nhiệm về key & dữ liệu.
@@ -91,11 +91,11 @@ def sidebar_ai_config():
     st.sidebar.header("🧠 Bộ não AI (tùy chọn)")
     enable = st.sidebar.checkbox(
         "Bật phân tích bằng AI", value=False,
-        help="Tắt = chỉ dùng rule-based (miễn phí, cục bộ). Bật = cần API key của bạn.")
+        help="Tắt = chỉ dùng phân tích tự động (miễn phí, cục bộ). Bật = cần API key của bạn.")
 
     cfg = {"enabled": enable}
     if not enable:
-        st.sidebar.caption("Đang ở chế độ **KHÔNG AI** — báo cáo rút gọn, chạy hoàn toàn cục bộ.")
+        st.sidebar.caption("Đang ở chế độ **KHÔNG AI** — quét tự động, miễn phí, cục bộ.")
         return cfg
 
     ids = list(llm.PROVIDERS.keys())
@@ -238,7 +238,7 @@ def render_rule_based(res):
         st.write(f"**Trần phạt:** {ctx['tran_phat']}")
         st.write(f"**Mẫu TT 02/2023:** {ctx['ghi_chu_tt02']}")
 
-    st.subheader("🚩 Rủi ro phát hiện (rule-based)")
+    st.subheader("🚩 Rủi ro phát hiện (quét tự động)")
     if not res["findings"]:
         st.success("Không phát hiện mẫu câu rủi ro điển hình. Vẫn nên rà soát thủ công.")
     for f in res["findings"]:
@@ -262,36 +262,62 @@ def render_rule_based(res):
 # --------------------------------------------------------------------------- #
 def render_ai(data, provider, model):
     st.success(f"Báo cáo đầy đủ do AI lập — {provider} / {model}")
+
+    # ---- Thông tin hợp đồng ----
+    hd = data.get("thong_tin_hop_dong") or {}
+    if hd:
+        st.markdown("#### 📋 Thông tin hợp đồng")
+        labels = [
+            ("ten_du_an",    "Tên dự án / Công trình"),
+            ("ten_cdt",      "Chủ đầu tư (Bên A)"),
+            ("ten_tu_van",   "Đơn vị tư vấn (Bên B)"),
+            ("so_hop_dong",  "Số hiệu hợp đồng"),
+            ("goi_thau",     "Gói thầu"),
+            ("gia_hop_dong", "Giá trị hợp đồng"),
+            ("thoi_han",     "Thời hạn thực hiện"),
+            ("loai_hop_dong","Loại hợp đồng"),
+        ]
+        rows_hd = {lbl: hd.get(k, "—") for k, lbl in labels if hd.get(k)}
+        if rows_hd:
+            import pandas as pd
+            df = pd.DataFrame(list(rows_hd.items()), columns=["Trường", "Giá trị"])
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        st.divider()
+
     if data.get("vai_tro"):
         st.markdown(f"**Vai trò tư vấn:** {data['vai_tro']}")
     if data.get("nguon_von"):
         st.markdown(f"**Nguồn vốn & trần phạt:** {data['nguon_von']}")
-    if data.get("tom_tat_dieu_hanh"):
-        st.markdown("**Tóm tắt điều hành:**")
-        st.info(data["tom_tat_dieu_hanh"])
+    tqc = data.get("tong_quan_chung") or data.get("tom_tat_dieu_hanh")
+    if tqc:
+        st.markdown("**Tổng quan chung:**")
+        st.info(tqc)
 
     rows = data.get("dieu_khoan") or []
     if rows:
-        st.markdown(f"**Phân tích chi tiết ({len(rows)} điều khoản):**")
+        st.markdown(f"**Phân tích chi tiết ({len(rows)} chủ đề):**")
         for it in rows:
             lvl = str(it.get("muc_do", "CAM")).upper()
             dot = ":red[●]" if "Đ" in lvl or "DO" in lvl or "CAO" in lvl else (
                 ":green[●]" if "XANH" in lvl else ":orange[●]")
-            with st.expander(f"{dot} {it.get('ref','(điều khoản)')} — {lvl}"):
+            chu_de = it.get("chu_de", "")
+            ref = it.get("ref", "(điều khoản)")
+            title = f"{dot} **Chủ đề {chu_de}** — {ref} — {lvl}" if chu_de else f"{dot} {ref} — {lvl}"
+            with st.expander(title):
                 st.markdown(f"**Vấn đề & căn cứ:** {it.get('van_de','')}")
                 st.markdown(f"**Đề xuất:** {it.get('de_xuat','')}")
 
     if data.get("dieu_khoan_co_loi"):
-        st.markdown("**Điều khoản có lợi cần bảo vệ:**")
+        st.markdown("**✅ Điều khoản có lợi cần bảo vệ:**")
         for x in data["dieu_khoan_co_loi"]:
             st.markdown(f"- {x}")
     if data.get("thieu_sot"):
-        st.markdown("**Nội dung còn thiếu:**")
+        st.markdown("**⚠️ Nội dung còn thiếu:**")
         for x in data["thieu_sot"]:
             st.markdown(f"- {x}")
     pri = data.get("uu_tien_dam_phan") or {}
     if pri:
-        st.markdown("**Ưu tiên đàm phán:**")
+        st.markdown("**🎯 Ưu tiên đàm phán:**")
         for k, t in [("phai_dat", "🔴 Phải đạt"), ("nen_dat", "🟠 Nên đạt"), ("don_dep", "🟢 Dọn dẹp")]:
             for x in (pri.get(k) or []):
                 st.markdown(f"- {t}: {x}")
@@ -319,7 +345,7 @@ def main():
     elif ai_cfg["enabled"] and ai_cfg.get("api_key"):
         st.warning("Đã có API key nhưng **chưa chọn model**. Ở thanh bên bấm **🔄 Lấy danh sách model** rồi chọn một model.")
     elif ai_cfg["enabled"]:
-        st.warning("Bạn đã bật AI nhưng **chưa nhập API key**. Hãy nhập key ở thanh bên, hoặc tắt AI để dùng bản rule-based.")
+        st.warning("Bạn đã bật AI nhưng **chưa nhập API key**. Hãy nhập key ở thanh bên, hoặc tắt AI để dùng bản phân tích tự động.")
     else:
         st.info("Chế độ **KHÔNG AI** — báo cáo rút gọn, chạy cục bộ. Bật AI ở thanh bên nếu có API key.")
 
@@ -328,7 +354,7 @@ def main():
         return
 
     data_bytes = up.getvalue()
-    with st.spinner("Đang rà soát (rule-based)…"):
+    with st.spinner("Đang rà soát tự động…"):
         try:
             res = analyze(data_bytes, up.name)
         except Exception as e:
@@ -342,7 +368,7 @@ def main():
     # Tải báo cáo rule-based
     try:
         with cols[0]:
-            st.download_button("⬇️ Tải báo cáo rút gọn (rule-based, .docx)",
+            st.download_button("⬇️ Tải báo cáo rút gọn (tự động, .docx)",
                 data=build_report(res),
                 file_name=f"BaoCao_RutGon_{os.path.splitext(up.name)[0]}.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -371,7 +397,7 @@ def main():
                 st.error(f"AI lỗi: {ai.get('error')}")
                 if ai.get("raw"):
                     with st.expander("Phản hồi thô từ AI"):
-                        st.code(ai["raw"])
+                         st.code(ai["raw"])
             else:
                 st.subheader("🧠 Báo cáo đầy đủ (AI)")
                 if ai.get("truncated"):
