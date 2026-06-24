@@ -168,6 +168,26 @@ CROSS_ROLE_FLAGS = [
 
 
 def detect_roles(full_text):
+    import re
     counts = {}
     for r in ROLES:
-        n =
+        n = len(re.findall(r["pattern"], full_text, flags=re.IGNORECASE))
+        counts[r["id"]] = n
+    matched = [r for r in ROLES if counts.get(r["id"], 0) > 0]
+    matched.sort(key=lambda r: counts.get(r["id"], 0), reverse=True)
+    return matched
+
+
+def party_label(role_key: str) -> str:
+    """Trả nhãn Bên B đúng với vai trò (dùng trong báo cáo)."""
+    MAP = {
+        "TVGS":        "TVGS",
+        "QLDA":        "đơn vị QLDA",
+        "THAM_TRA_TK": "đơn vị thẩm tra thiết kế",
+        "THAM_TRA_DT": "đơn vị thẩm tra dự toán",
+        "KIEM_DINH":   "đơn vị kiểm định",
+        "KHAO_SAT":    "đơn vị khảo sát",
+        "THIET_KE":    "đơn vị thiết kế",
+        "LAP_DA":      "đơn vị lập dự án",
+    }
+    return MAP.get(role_key, "đơn vị tư vấn (Bên B)")

@@ -20,7 +20,7 @@ import xml.etree.ElementTree as ET
 from knowledge import (
     RISK_RULES, TOPICS, EN_WARN_TERMS, DO, CAM, XANH, LEVEL_ORDER,
 )
-from roles import detect_roles, party_label
+from roles import detect_roles, party_label, CROSS_ROLE_FLAGS
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -285,10 +285,24 @@ def analyze(data: bytes, filename: str):
 
     headings = detect_structure(paras)
     context = detect_context(paras, headings, full_text)
-    roles = detect_roles(full_text)
-    label = party_label(roles.get("primary"))
-    roles["party_label"] = label
-    findings = scan_findings(paras, label, roles.get("primary"))
+    roles_list = detect_roles(full_text)
+    primary_meta = roles_list[0] if roles_list else None
+    primary_id = primary_meta["id"] if primary_meta else None
+    label = party_label(primary_id)
+    cross_flags = []
+    if primary_id:
+        for cf in CROSS_ROLE_FLAGS:
+            if cf["primary"] == primary_id and re.search(cf["foreign_pattern"], full_text, re.IGNORECASE):
+                cross_flags.append(cf["note"])
+    roles = {
+        "primary": primary_id,
+        "primary_meta": primary_meta,
+        "present_meta": roles_list,
+        "multi_role": len(roles_list) > 1,
+        "cross_role_flags": cross_flags,
+        "party_label": label,
+    }
+    findings = scan_findings(paras, label, primary_id)
     coverage = scan_coverage(full_lower, label)
     en_warnings = scan_en_warnings(full_lower, label)
 
