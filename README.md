@@ -19,6 +19,10 @@ cập cho nhiều người, có **một lớp bảo mật bằng mật khẩu**.
 
 ---
 
+## Bản 2.1 – đồng bộ giao diện
+
+Màn hình đăng nhập và giao diện đồng bộ với bộ app Phòng Kỹ thuật (Đề cương, Khối lượng, Hồ sơ chất lượng, Legal Reviewer, Quyết định đoàn): đăng nhập gọn có logo TEXO, thanh bên ẩn trước khi đăng nhập; đầu trang logo + tiêu đề; ô KPI mức rủi ro kèm dòng kết luận; thanh bên "Trợ lý AI (tùy chọn)"; nút Đăng xuất.
+
 ## 1. Công cụ làm được gì (không cần AI)
 
 - Đọc hợp đồng **.docx** và **.pdf** (PDF phải có chữ — không phải ảnh scan).
@@ -36,9 +40,9 @@ cập cho nhiều người, có **một lớp bảo mật bằng mật khẩu**.
   với CĐT, thiếu điều khoản thanh toán/giải quyết tranh chấp).
 - **Xuất báo cáo Word A4** (Times New Roman, bảng màu theo mức rủi ro) để mang đi đàm phán.
 
-## 1b. Chế độ CÓ AI ("bộ não") — tùy chọn
+## 1b. Chế độ CÓ AI — tùy chọn
 
-Bật ở thanh bên, chọn nhà cung cấp và **dán API key của bạn**:
+Ở thanh bên, mục **Trợ lý AI (tùy chọn)**: chọn nhà cung cấp (hoặc *Không dùng AI*) và **dán API key của bạn**:
 
 - **Anthropic (Claude)**, **Google (Gemini)**, **OpenAI (ChatGPT)**, và **mọi endpoint tương
   thích OpenAI** (điền base URL tùy ý: OpenRouter, Azure, model nội bộ…).
@@ -52,14 +56,14 @@ Bật ở thanh bên, chọn nhà cung cấp và **dán API key của bạn**:
 
 - Khi bật AI, **toàn văn hợp đồng được gửi tới nhà cung cấp bạn chọn** để xử lý. Đây là đánh
   đổi so với chế độ rule-based (chạy 100% cục bộ). Cân nhắc trước khi gửi hợp đồng nhạy cảm.
-- Tùy chọn **"Ghi nhớ key tại máy này"** lưu key vào tệp `.texo_secrets.json` ngay trên máy
+- Tùy chọn **"Lưu key trên máy này"** lưu key vào tệp `.texo_secrets.json` ngay trên máy
   chạy app (đã đưa vào `.gitignore`, không bao giờ commit). Tiện nhưng kém an toàn hơn — chúng
   tôi **đã cân nhắc kỹ** và quyết định để **bạn tự chọn**.
 - **Khuyến nghị:** chỉ ghi nhớ key trên **máy cá nhân của bạn**; KHÔNG để người khác dùng chung
   tài khoản/máy đã lưu key; KHÔNG deploy công khai (Streamlit Cloud, server chung) kèm key đã lưu.
 - Việc lộ key (nếu xảy ra) là do **cách sử dụng của người dùng**, **không phải lỗi phần mềm
-  hay người phát triển**. Hãy bảo quản key như mật khẩu; có nút **"Xoá key đã lưu tại máy"**
-  khi cần.
+  hay người phát triển**. Hãy bảo quản key như mật khẩu; bỏ tick ô đó là
+  xoá key đã lưu.
 - Mặc định (không tick ghi nhớ): key **chỉ tồn tại trong phiên**, đóng app là mất.
 - Đọc cả **comment** có sẵn trong file .docx.
 
@@ -71,7 +75,9 @@ Toàn bộ tri thức nằm trong `knowledge.py` — bạn có thể **bổ sung
 
 ```
 texo-contract-checker-app/
-├── app.py              # Giao diện Streamlit + cổng mật khẩu
+├── app.py              # Giao diện Streamlit
+├── ui.py               # Đăng nhập, đầu trang, ô KPI dùng chung bộ app Phòng Kỹ thuật
+├── assets/logo_texo.png
 ├── engine.py           # Trích xuất + nhận diện kết cấu + quét rủi ro + độ phủ
 ├── knowledge.py        # Bộ quy tắc rủi ro & 21 chủ đề (CHỈNH Ở ĐÂY để nâng chất lượng)
 ├── roles.py            # Nhận diện vai trò tư vấn + phạm vi/căn cứ + cờ scope creep
@@ -174,3 +180,5 @@ chất lượng cao nhất khi không dùng AI.
 
 Báo cáo là rà soát **nội bộ hỗ trợ đàm phán**, **không thay thế ý kiến luật sư chính thức**.
 Mọi phát hiện cần người có chuyên môn kiểm chứng trên bản hợp đồng gốc trước khi ký.
+
+_Người xây dựng: Hoàng Đức Vũ – Phòng Kỹ thuật._

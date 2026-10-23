@@ -20,38 +20,13 @@ from engine import analyze, extract
 from report import build_report, build_ai_report
 from knowledge import DO, CAM, XANH, LEVEL_LABEL, LEVEL_COLOR
 import llm
+import ui
 
-st.set_page_config(page_title="TEXO – Rà soát Hợp đồng tư vấn xây dựng",
-                   page_icon="📑", layout="wide")
+APP_VERSION = "2.1"
+TITLE = "Rà soát Hợp đồng tư vấn xây dựng"
+ui.setup("TEXO · " + TITLE, "📑")
 
 SECRETS_PATH = Path(__file__).with_name(".texo_secrets.json")
-
-
-# --------------------------------------------------------------------------- #
-# CỔNG MẬT KHẨU
-# --------------------------------------------------------------------------- #
-def get_password():
-    try:
-        if "APP_PASSWORD" in st.secrets:
-            return str(st.secrets["APP_PASSWORD"])
-    except Exception:
-        pass
-    return os.environ.get("APP_PASSWORD", "texo2026")
-
-
-def check_password():
-    if st.session_state.get("auth_ok"):
-        return True
-    st.markdown("### 🔒 Đăng nhập")
-    st.caption("Công cụ nội bộ TEXO — vui lòng nhập mật khẩu để tiếp tục.")
-    pw = st.text_input("Mật khẩu", type="password", key="pw_input")
-    if st.button("Vào", type="primary"):
-        if pw == get_password():
-            st.session_state["auth_ok"] = True
-            st.rerun()
-        else:
-            st.error("Mật khẩu không đúng.")
-    return False
 
 
 # --------------------------------------------------------------------------- #
@@ -87,119 +62,82 @@ def forget_secrets():
 # SIDEBAR — CẤU HÌNH AI
 # --------------------------------------------------------------------------- #
 def sidebar_ai_config():
+    """Thanh bên 'Trợ lý AI (tùy chọn)' – cùng bố cục với bộ app Phòng Kỹ thuật."""
     saved = load_secrets()
-    st.sidebar.header("🧠 Bộ não AI (tùy chọn)")
-    enable = st.sidebar.checkbox(
-        "Bật phân tích bằng AI", value=False,
-        help="Tắt = chỉ dùng phân tích tự động (miễn phí, cục bộ). Bật = cần API key của bạn.")
-
-    cfg = {"enabled": enable}
-    if not enable:
-        st.sidebar.caption("Đang ở chế độ **KHÔNG AI** — quét tự động, miễn phí, cục bộ.")
-        return cfg
-
+    sb = st.sidebar
+    sb.markdown("### 🤖 Trợ lý AI (tùy chọn)")
     ids = list(llm.PROVIDERS.keys())
-    labels = [llm.PROVIDERS[i]["label"] for i in ids]
-    last = saved.get("last_provider", "anthropic")
-    idx = ids.index(last) if last in ids else 0
-    pid = ids[st.sidebar.selectbox("Nhà cung cấp", range(len(ids)),
-                                   format_func=lambda i: labels[i], index=idx)]
+    last = saved.get("last_provider") if saved.get("keys", {}).get(saved.get("last_provider")) else None
+    pid = sb.selectbox("Nhà cung cấp", ["(Không dùng AI)"] + ids,
+                       index=(ids.index(last) + 1) if last in ids else 0,
+                       format_func=lambda k: llm.PROVIDERS[k]["label"] if k in llm.PROVIDERS else k)
+    if pid == "(Không dùng AI)":
+        sb.caption("Đang chạy bằng bộ quy tắc – miễn phí, dữ liệu không rời máy. Báo cáo rút gọn.")
+        return {"enabled": False}
     prov = llm.PROVIDERS[pid]
 
+    api_key = sb.text_input("API key", value=saved.get("keys", {}).get(pid, ""), type="password")
     base_url = ""
     if prov["needs_base_url"]:
-        base_url = st.sidebar.text_input(
-            "Base URL (BẮT BUỘC)", value=saved.get("base_urls", {}).get(pid, ""),
-            placeholder="https://openrouter.ai/api/v1",
-            help="Bắt buộc cho loại tương thích OpenAI. OpenRouter: https://openrouter.ai/api/v1 "
-                 "— và tên model dạng 'nhà_cung_cấp/model', vd 'openai/gpt-4o'.")
-        if not base_url.strip():
-            st.sidebar.error("⚠️ Chưa điền Base URL → sẽ bị gọi nhầm sang OpenAI và báo lỗi key. "
-                             "OpenRouter dùng: https://openrouter.ai/api/v1")
-    api_key = st.sidebar.text_input(
-        "API key", value=saved.get("keys", {}).get(pid, ""), type="password",
-        help=prov["key_hint"])
-
-    # Lấy danh sách model thực tế mà key này dùng được (thay cho ô nhập model thủ công)
-    if st.sidebar.button("🔄 Lấy danh sách model", use_container_width=True):
-        if not api_key:
-            st.sidebar.warning("Nhập API key trước đã.")
-        elif prov["needs_base_url"] and not (base_url or "").strip():
-            st.sidebar.warning("Điền Base URL trước đã.")
+        base_url = sb.text_input("Base URL", value=saved.get("base_urls", {}).get(pid, ""),
+                                 placeholder="https://openrouter.ai/api/v1",
+                                 help="Bắt buộc cho loại tương thích OpenAI. OpenRouter: https://openrouter.ai/api/v1 "
+                                      "– tên model dạng 'nhà_cung_cấp/model', vd 'openai/gpt-4o'.")
+    if sb.button("Lấy danh sách model", disabled=not api_key or (prov["needs_base_url"] and not base_url.strip())):
+        with sb:
+            with st.spinner("Đang lấy danh sách model…"):
+                ok, res = llm.list_models(pid, api_key, base_url or None)
+        if ok and res:
+            st.session_state[f"models_{pid}"] = res
+        elif ok:
+            sb.warning("Key hợp lệ nhưng không có model nào dùng được.")
         else:
-            with st.sidebar:
-                with st.spinner("Đang hỏi danh sách model…"):
-                    ok, res = llm.list_models(pid, api_key, base_url or None)
-            if ok and res:
-                st.session_state[f"models_{pid}"] = res
-                st.sidebar.success(f"Tìm thấy {len(res)} model.")
-            elif ok:
-                st.sidebar.info("Key hợp lệ nhưng không có model nào dùng được.")
-            else:
-                st.sidebar.error(f"Lỗi lấy model: {res}")
+            sb.error(f"Lỗi lấy model: {res}")
 
     fetched = st.session_state.get(f"models_{pid}")
     model = ""
     if fetched:
         saved_model = saved.get("models", {}).get(pid)
         prefer = ["flash-latest", "2.5-flash", "gpt-4o", "sonnet", "flash", "pro"]
+        idx = 0
         if saved_model in fetched:
             idx = fetched.index(saved_model)
         else:
-            idx = 0
             for kw in prefer:
                 hit = next((i for i, m in enumerate(fetched) if kw in m.lower()), None)
                 if hit is not None:
                     idx = hit
                     break
-        model = st.sidebar.selectbox("Model (chọn từ danh sách)", fetched, index=idx)
-    else:
-        st.sidebar.info("Bấm **🔄 Lấy danh sách model** rồi chọn model để dùng.")
+        model = sb.selectbox("Model", fetched, index=idx)
+        if sb.button("Kiểm tra kết nối"):
+            with sb:
+                with st.spinner("Đang gọi thử…"):
+                    ok, msg = llm.test_connection(pid, model, api_key, base_url or None)
+            (sb.success if ok else sb.error)(("Kết nối được: " if ok else "") + msg)
+    sb.caption(prov.get("key_hint", ""))
 
-    remember = st.sidebar.checkbox("Ghi nhớ key tại máy này", value=bool(saved.get("keys", {}).get(pid)))
-
-    col1, col2 = st.sidebar.columns(2)
-    if col1.button("💾 Lưu", use_container_width=True):
-        if remember:
+    luu = sb.checkbox("Lưu key trên máy này", value=bool(saved.get("keys", {}).get(pid)))
+    if luu and api_key:
+        new = (api_key, model or saved.get("models", {}).get(pid, ""), base_url)
+        old = (saved.get("keys", {}).get(pid), saved.get("models", {}).get(pid, ""), saved.get("base_urls", {}).get(pid, ""))
+        if new != old or saved.get("last_provider") != pid:
             saved.setdefault("keys", {})[pid] = api_key
-            saved.setdefault("models", {})[pid] = model
+            saved.setdefault("models", {})[pid] = new[1]
             saved.setdefault("base_urls", {})[pid] = base_url
             saved["last_provider"] = pid
-            if save_secrets(saved):
-                st.sidebar.success("Đã lưu key tại máy.")
-        else:
-            # bỏ ghi nhớ provider này
-            saved.get("keys", {}).pop(pid, None)
             save_secrets(saved)
-            st.sidebar.info("Đã bỏ ghi nhớ key của nhà cung cấp này.")
-    if col2.button("🧪 Kiểm tra", use_container_width=True):
-        if not api_key:
-            st.sidebar.warning("Chưa nhập key.")
-        elif not model:
-            st.sidebar.warning("Hãy bấm 'Lấy danh sách model' và chọn model trước.")
+    elif not luu and saved.get("keys", {}).get(pid):
+        saved["keys"].pop(pid, None)
+        if saved["keys"]:
+            save_secrets(saved)
         else:
-            with st.sidebar:
-                with st.spinner("Đang kiểm tra kết nối…"):
-                    ok, msg = llm.test_connection(pid, model, api_key, base_url or None)
-            (st.sidebar.success if ok else st.sidebar.error)(
-                f"{'OK' if ok else 'Lỗi'}: {msg}")
-    if st.sidebar.button("🗑️ Xoá key đã lưu tại máy", use_container_width=True):
-        forget_secrets()
-        st.sidebar.info("Đã xoá file key tại máy.")
-
-    # CẢNH BÁO BẢO MẬT (theo yêu cầu)
-    st.sidebar.warning(
-        "⚠️ **Lưu ý về API key & bảo mật**\n\n"
-        "- Khi bật AI, **toàn văn hợp đồng** sẽ được gửi tới nhà cung cấp bạn chọn để xử lý.\n"
-        "- Tùy chọn *ghi nhớ key tại máy* lưu key vào tệp `.texo_secrets.json` ngay trên máy "
-        "chạy app (tiện nhưng kém an toàn hơn). Chúng tôi đã cân nhắc kỹ và để **bạn tự chọn**.\n"
-        "- **Khuyến nghị:** chỉ ghi nhớ key trên **máy cá nhân của bạn**; KHÔNG để người khác "
-        "dùng chung tài khoản/máy đã lưu key; không deploy công khai kèm key.\n"
-        "- Việc lộ key (nếu có) là do cách sử dụng của người dùng, **không phải lỗi phần mềm "
-        "hay người phát triển**. Hãy bảo quản key như mật khẩu.")
-
-    cfg.update({"provider": pid, "model": model, "base_url": base_url or None, "api_key": api_key})
-    return cfg
+            forget_secrets()
+    sb.caption("⚠️ Bật AI thì **toàn văn hợp đồng** được gửi tới nhà cung cấp đã chọn. Chỉ lưu key trên máy "
+               "cá nhân, không dùng chung máy đã lưu key, không lưu trên Streamlit Cloud. Lộ key do cách sử dụng "
+               "không phải lỗi phần mềm.")
+    if not (api_key and model):
+        sb.info("Nhập key và chọn model để bật AI.")
+    return {"enabled": True, "provider": pid, "model": model, "base_url": base_url or None, "api_key": api_key}
 
 
 # --------------------------------------------------------------------------- #
@@ -211,9 +149,19 @@ def flag(level):
 
 def render_rule_based(res):
     ctx = res["context"]; s = res["summary"]
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Rủi ro CAO", s[DO]); c2.metric("Rủi ro TRUNG BÌNH", s[CAM])
-    c3.metric("Chủ đề THIẾU", s["missing"]); c4.metric("Đề mục/Điều", res["meta"]["n_headings"])
+    k = st.columns(4)
+    ui.kpi(k[0], s[DO], "Rủi ro cao", "cần đàm phán sửa", "red" if s[DO] else "green")
+    ui.kpi(k[1], s[CAM], "Rủi ro trung bình", "nên làm rõ", "orange" if s[CAM] else "green")
+    ui.kpi(k[2], s["missing"], "Chủ đề còn thiếu", "so với khung chuẩn", "orange" if s["missing"] else "green")
+    ui.kpi(k[3], res["meta"]["n_headings"], "Đề mục / Điều", "đã nhận diện", "blue")
+    if s[DO]:
+        ui.callout(f"🔴 Có <b>{s[DO]}</b> điểm rủi ro cao cho bên tư vấn – xem mục <i>Rủi ro phát hiện</i> và đưa vào "
+                   "danh sách phải đạt khi đàm phán.", "red")
+    elif s[CAM] or s["missing"]:
+        ui.callout("🟠 Không có rủi ro cao; còn điểm cần làm rõ hoặc chủ đề chưa có trong hợp đồng.", "orange")
+    else:
+        ui.callout("🟢 Quét tự động không thấy rủi ro điển hình. Vẫn nên đọc lại các điều khoản thanh toán, phạt, "
+                   "trách nhiệm.", "green")
 
     roles = res.get("roles") or {}
     if roles.get("primary_meta"):
@@ -238,7 +186,7 @@ def render_rule_based(res):
         st.write(f"**Trần phạt:** {ctx['tran_phat']}")
         st.write(f"**Mẫu TT 02/2023:** {ctx['ghi_chu_tt02']}")
 
-    st.subheader("🚩 Rủi ro phát hiện (quét tự động)")
+    st.markdown("##### 🚩 Rủi ro phát hiện (quét tự động)")
     if not res["findings"]:
         st.success("Không phát hiện mẫu câu rủi ro điển hình. Vẫn nên rà soát thủ công.")
     for f in res["findings"]:
@@ -251,7 +199,7 @@ def render_rule_based(res):
 
     missing = [c for c in res["coverage"] if not c["present"]]
     if missing:
-        st.subheader("📋 Chủ đề chuẩn còn THIẾU")
+        st.markdown("##### 📋 Chủ đề chuẩn còn thiếu")
         for c in missing:
             st.markdown(f"{flag(c['missing_risk'])} {c['id']}. {c['name']}")
             st.caption(c["missing_note"])
@@ -327,29 +275,36 @@ def render_ai(data, provider, model):
 # MAIN
 # --------------------------------------------------------------------------- #
 def main():
-    st.title("📑 Rà soát pháp lý Hợp đồng tư vấn xây dựng — TEXO")
-    st.caption("Góc nhìn ĐƠN VỊ TƯ VẤN (Bên B): TVGS, QLDA, thẩm tra, kiểm định, khảo sát, thiết kế.")
-
-    if not check_password():
-        st.stop()
+    ui.gate("Rà soát Hợp đồng tư vấn")
+    ui.header(TITLE, "Phòng Kỹ thuật · Góc nhìn đơn vị tư vấn (Bên B): TVGS, QLDA, thẩm tra, kiểm định, khảo sát, thiết kế")
 
     ai_cfg = sidebar_ai_config()
+    ai_ready = ai_cfg["enabled"] and ai_cfg.get("api_key") and ai_cfg.get("model")
     with st.sidebar:
         st.divider()
-        st.markdown("**Chú thích mức rủi ro:** :red[●] Cao · :orange[●] Trung bình · :green[●] Ổn/Có lợi")
-        if st.button("Đăng xuất"):
-            st.session_state.clear(); st.rerun()
+        if ai_ready:
+            ui.badge(f"AI sẵn sàng – {ai_cfg['model']}", "green")
+        elif ai_cfg["enabled"]:
+            ui.badge("Chưa đủ cấu hình AI → chạy bằng quy tắc", "orange")
+        else:
+            ui.badge("Chế độ quy tắc (không AI)", "grey")
+        st.markdown("**Mức rủi ro:** :red[●] Cao · :orange[●] Trung bình · :green[●] Ổn/Có lợi")
+        ui.logout_button()
+        st.caption("⚖️ Rà soát văn bản pháp luật, tiêu chuẩn viện dẫn bằng TEXO Legal Reviewer trước khi trình ký.")
+        st.caption(f"Rà soát hợp đồng v{APP_VERSION} · Xây dựng: Hoàng Đức Vũ")
 
-    if ai_cfg["enabled"] and ai_cfg.get("api_key") and ai_cfg.get("model"):
-        st.success("🧠 Chế độ **CÓ AI** đang bật — sẽ có nút tạo báo cáo đầy đủ sau khi rà soát.")
-    elif ai_cfg["enabled"] and ai_cfg.get("api_key"):
-        st.warning("Đã có API key nhưng **chưa chọn model**. Ở thanh bên bấm **🔄 Lấy danh sách model** rồi chọn một model.")
-    elif ai_cfg["enabled"]:
-        st.warning("Bạn đã bật AI nhưng **chưa nhập API key**. Hãy nhập key ở thanh bên, hoặc tắt AI để dùng bản phân tích tự động.")
-    else:
-        st.info("Chế độ **KHÔNG AI** — báo cáo rút gọn, chạy cục bộ. Bật AI ở thanh bên nếu có API key.")
+    with st.expander("📘 Hướng dẫn sử dụng"):
+        st.markdown("""
+1. **Tải hợp đồng** `.docx` hoặc `.pdf` (có lớp chữ) vào ô bên dưới – app quét ngay bằng bộ quy tắc.
+2. Xem **ô tổng hợp**, vai trò tư vấn, các **rủi ro phát hiện** (có trích dẫn, căn cứ, đề xuất) và **chủ đề còn thiếu**.
+3. Bấm **Tải báo cáo rút gọn** để lấy file Word.
+4. **(Tuỳ chọn) Trợ lý AI** ở thanh bên: chọn nhà cung cấp → dán API key → *Lấy danh sách model* → *Kiểm tra kết nối*,
+   rồi bấm **Tạo báo cáo đầy đủ bằng AI** (20–60 giây).
 
-    up = st.file_uploader("Tải hợp đồng (.docx hoặc .pdf)", type=["docx", "pdf"])
+Kết quả chỉ hỗ trợ rà soát – người rà soát vẫn đọc lại hợp đồng và chịu trách nhiệm về ý kiến cuối cùng.
+""")
+    st.markdown("##### 📥 Tải hợp đồng cần rà soát")
+    up = st.file_uploader("Chọn hoặc kéo thả file hợp đồng (.docx, .pdf)", type=["docx", "pdf"])
     if not up:
         return
 
@@ -377,7 +332,7 @@ def main():
         st.error(f"Không tạo được báo cáo rút gọn: {e}")
 
     # Luồng AI
-    if ai_cfg["enabled"] and ai_cfg.get("api_key") and ai_cfg.get("model"):
+    if ai_ready:
         with cols[1]:
             run_ai = st.button("🧠 Tạo báo cáo ĐẦY ĐỦ bằng AI", type="primary",
                                use_container_width=True)
@@ -399,7 +354,7 @@ def main():
                     with st.expander("Phản hồi thô từ AI"):
                          st.code(ai["raw"])
             else:
-                st.subheader("🧠 Báo cáo đầy đủ (AI)")
+                st.markdown("#### 🧠 Báo cáo đầy đủ (AI)")
                 if ai.get("truncated"):
                     st.warning("Phản hồi AI dài và có thể bị cắt cụt — báo cáo đã được vá để "
                                "đọc được nhưng có thể thiếu phần cuối. Thử model có giới hạn "
